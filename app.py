@@ -1,141 +1,131 @@
 import streamlit as st
-import pandas as pd
 import yfinance as yf
+import pandas as pd
+import pandas_ta as ta
+from datetime import datetime
+import pytz
 
-# --- 1. KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="Adienov Super Scanner", page_icon="📈", layout="wide")
+# --- KONFIGURASI TEMA ---
+st.set_page_config(page_title="Adienov Mobile", layout="wide", initial_sidebar_state="collapsed")
 
-# --- 2. DATABASE SAHAM (50+ SAHAM) ---
+# CSS: TAMPILAN KHUSUS HP (Mobile Friendly)
+st.markdown("""
+    <style>
+        .stApp { background-color: #FFFFFF; color: #000000; }
+        /* Perkecil Judul H1 */
+        h1 { font-size: 1.5rem !important; padding-top: 0px !important; }
+        /* Perkecil Subjudul */
+        div[data-testid="stCaptionContainer"] { font-size: 0.8rem; }
+        /* Tombol Scan Lebih Menonjol */
+        div.stButton > button { width: 100%; border-radius: 20px; font-weight: bold; background-color: #007BFF; color: white !important;}
+        /* Tabel Lebih Kompak */
+        div[data-testid="stDataFrame"] { font-size: 12px; }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- HEADER VERSI MOBILE ---
+st.title("📱 Adienov Scanner V3")
+st.caption("Alligator Strategy • Mobile Optimized")
+
+# --- PETUNJUK TOMBOL TERSEMBUNYI ---
+# Ini untuk menjawab keluhan "Fitur ubah screening tersembunyi"
+st.info("⚙️ **PENGATURAN:** Klik tanda panah **( > )** di pojok kiri atas layar untuk mengubah Filter (Min Transaksi & Risiko).")
+
+# --- SIDEBAR (INPUT) ---
+with st.sidebar:
+    st.header("⚙️ Filter Scanner")
+    min_trans = st.number_input("Min. Transaksi (Miliar)", value=2.0, step=0.5)
+    risk_tol = st.slider("Batas Early Trend (%)", 1.0, 10.0, 5.0)
+    st.markdown("---")
+    st.caption("Tips: Geser layar ke kanan/kiri pada tabel hasil scan untuk melihat kolom lengkap.")
+
+# --- DATABASE SAHAM ---
 tickers = [
-    # PERBANKAN
-    "BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "BRIS.JK", "BBTN.JK", "ARTO.JK", "BNGA.JK",
-    # TAMBANG & ENERGI
-    "ADRO.JK", "PTBA.JK", "ITMG.JK", "PGAS.JK", "ANTM.JK", "INCO.JK", "MDKA.JK", "HRUM.JK",
-    "MEDC.JK", "AKRA.JK", "AMMN.JK", "BREN.JK", "CUAN.JK", "PTRO.JK", "PANI.JK", "TPIA.JK",
-    # KONSUMER & RITEL
-    "ICBP.JK", "INDF.JK", "UNVR.JK", "MYOR.JK", "AMRT.JK", "MIDI.JK", "ACES.JK", "MAPI.JK",
-    # TELCO & TECH
-    "TLKM.JK", "ISAT.JK", "EXCL.JK", "GOTO.JK", "BUKA.JK", "EMTK.JK", 
-    # OTOMOTIF & PROPERTI
-    "ASII.JK", "UNTR.JK", "SMRA.JK", "BSDE.JK", "CTRA.JK", "PWON.JK",
-    # KESEHATAN & LAINNYA
-    "KLBF.JK", "MIKA.JK", "HEAL.JK", "SIDO.JK", "BRPT.JK", "INKP.JK", "TKIM.JK", "JPFA.JK", "CPIN.JK"
+    "ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "ASII.JK",
+    "ADRO.JK", "PTBA.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "SIDO.JK",
+    "MDKA.JK", "INCO.JK", "MBMA.JK", "AMRT.JK", "ACES.JK", "HRUM.JK",
+    "AKRA.JK", "MEDC.JK", "ELSA.JK", "BRMS.JK", "DEWA.JK", "BUMI.JK",
+    "UNVR.JK", "MYOR.JK", "CPIN.JK", "JPFA.JK", "SMGR.JK", "INTP.JK", "TPIA.JK"
 ]
 
-# --- 3. SIDEBAR (PENGATURAN) ---
-st.sidebar.header("⚙️ PENGATURAN ROBOT")
+# --- FUNGSI SCAN ---
+@st.cache_data(ttl=60) # Cache 60 detik agar tidak berat di HP
+def scan_market(min_val_m, risk_pct):
+    results = []
+    # Progress Bar Sederhana
+    text_progress = st.empty()
+    bar_progress = st.progress(0)
+    
+    total = len(tickers)
+    for i, ticker in enumerate(tickers):
+        # Update teks progress
+        text_progress.text(f"Scanning {ticker.replace('.JK','')}... ({i+1}/{total})")
+        try:
+            df = yf.download(ticker, period="3mo", progress=False)
+            if df.empty or len(df) < 20: continue
+            try:
+                if isinstance(df.columns, pd.MultiIndex): df = df.xs(ticker, level=1, axis=1)
+            except: pass
 
-strategi = st.sidebar.selectbox(
-    "PILIH STRATEGI:",
-    ("🟢 Reversal (Early Buy)", "🚀 Breakout (Uptrend)")
-)
-
-st.sidebar.divider()
-
-# A. FILTER UMUM
-min_transaksi = st.sidebar.number_input("Min. Transaksi (Miliar)", value=1.0, step=0.5)
-
-# B. SETTING KHUSUS
-if strategi == "🟢 Reversal (Early Buy)":
-    st.sidebar.info("Mencari saham yang baru mantul dari Garis Merah (Alligator).")
-    toleransi = st.sidebar.slider("Jarak Toleransi (%)", 1.0, 15.0, 8.0) 
-else:
-    st.sidebar.info("Mencari saham Uptrend yang menembus harga tertinggi.")
-    lookback = st.sidebar.slider("Periode Breakout (Hari)", 5, 60, 20)
-
-# --- 4. FUNGSI ANALISA ---
-def analyze_stock(ticker, strategy_mode):
-    try:
-        df = yf.download(ticker, period="6mo", interval="1d", progress=False)
-        if len(df) < 60: return None
-        
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-
-        # Ambil Data
-        last_close = float(df['Close'].iloc[-1])
-        prev_close = float(df['Close'].iloc[-2])
-        last_vol   = float(df['Volume'].iloc[-1])
-        
-        avg_vol_20 = df['Volume'].rolling(20).mean().iloc[-1]
-        transaksi_m = (last_close * avg_vol_20) / 1_000_000_000
-        
-        if transaksi_m < min_transaksi: return None
-        
-        signal = False
-        info_text = ""
-        
-        # LOGIKA STRATEGI
-        if strategy_mode == "🟢 Reversal (Early Buy)":
-            ma_red = df['Close'].rolling(window=13).mean().iloc[-1]
-            if last_close > ma_red:
-                jarak = ((last_close - ma_red) / last_close) * 100
-                if jarak <= toleransi:
-                    signal = True
-                    info_text = f"Jarak aman: {jarak:.1f}%"
-        
-        elif strategy_mode == "🚀 Breakout (Uptrend)":
-            highest_prev = df['High'].iloc[-lookback-1:-1].max()
-            if last_close > highest_prev:
-                signal = True
-                pct_break = ((last_close - highest_prev) / highest_prev) * 100
-                info_text = f"Breakout +{pct_break:.1f}%"
-
-        if signal:
-            # BERSIHKAN KODE SAHAM UNTUK LINK
-            clean_ticker = ticker.replace(".JK", "")
-            # BUAT LINK TRADINGVIEW
-            tv_link = f"https://www.tradingview.com/chart/?symbol=IDX:{clean_ticker}"
+            df['HL2'] = (df['High'] + df['Low']) / 2
+            df['Teeth_Raw'] = df.ta.sma(close='HL2', length=8)
             
-            return {
-                "Saham": clean_ticker,
-                "Harga": int(last_close),
-                "Chg%": f"{((last_close - prev_close)/prev_close)*100:.2f}%",
-                "Vol (xAvg)": f"{last_vol/avg_vol_20:.1f}x",
-                "Keterangan": info_text,
-                "Link": tv_link  # Kolom ini nanti kita ubah jadi tombol
-            }
-            
-    except Exception as e:
-        return None
-    return None
+            if pd.isna(df['Teeth_Raw'].iloc[-6]) or pd.isna(df['Close'].iloc[-1]): continue
+            current_close = float(df['Close'].iloc[-1])
+            red_line = float(df['Teeth_Raw'].iloc[-6])
+            avg_val = (current_close * df['Volume'].mean()) / 1000000000 
+            if avg_val < min_val_m: continue
 
-# --- 5. TAMPILAN UTAMA ---
-st.title(f"Adienov Scanner V3: Auto-Link")
+            status = ""
+            if current_close > red_line:
+                diff = ((current_close - red_line) / current_close) * 100
+                if diff <= risk_pct: status = "🟢 EARLY"
+                else: status = "⚠️ EXTENDED"
+            else:
+                diff = ((red_line - current_close) / current_close) * 100
+                status = "🔴 DOWN"
 
+            results.append({
+                "Emiten": ticker.replace(".JK", ""), # Nama kolom dipersingkat agar muat di HP
+                "Harga": int(current_close),
+                "GarisMerah": int(red_line),
+                "Status": status,
+                "Jarak%": round(diff, 1),
+                "Val(M)": round(avg_val, 1)
+            })
+        except: continue
+        bar_progress.progress((i + 1) / total)
+    
+    bar_progress.empty()
+    text_progress.empty()
+    return pd.DataFrame(results)
+
+# --- TOMBOL UTAMA ---
 if st.button("🔍 MULAI SCAN SEKARANG"):
-    with st.status("Sedang mencari peluang...", expanded=True) as status:
-        results = []
-        progress_bar = st.progress(0)
+    with st.spinner('Sedang memindai...'):
+        waktu_skrg = datetime.now(pytz.timezone('Asia/Jakarta')).strftime("%H:%M WIB")
+        df = scan_market(min_trans, risk_tol)
         
-        for i, tick in enumerate(tickers):
-            res = analyze_stock(tick, strategi)
-            if res:
-                results.append(res)
-            progress_bar.progress((i + 1) / len(tickers))
+        if not df.empty:
+            st.success(f"✅ Update: {waktu_skrg}")
             
-        status.update(label="Selesai!", state="complete", expanded=False)
-
-    if len(results) > 0:
-        st.success(f"Ditemukan {len(results)} Saham Potensial!")
-        df_hasil = pd.DataFrame(results)
-        
-        # --- KONFIGURASI TABEL AGAR BISA DIKLIK ---
-        st.dataframe(
-            df_hasil,
-            column_config={
-                "Harga": st.column_config.NumberColumn(format="Rp %d"),
-                "Link": st.column_config.LinkColumn(
-                    "Chart", 
-                    display_text="Buka Chart ↗️" # Tulisan yang muncul di tombol
+            # HASIL 1: EARLY
+            df_early = df[df['Status'].str.contains("EARLY")]
+            if not df_early.empty:
+                st.subheader("🔥 Rekomendasi: BUY")
+                st.dataframe(
+                    df_early.style.background_gradient(subset=['Jarak%'], cmap="Greens")
+                    .format({"Harga": "{:.0f}", "GarisMerah": "{:.0f}", "Jarak%": "{:.1f}", "Val(M)": "{:.1f}"}),
+                    use_container_width=True, hide_index=True
                 )
-            },
-            use_container_width=True,
-            hide_index=True
-        )
-    else:
-        st.warning(f"Belum ada saham yang masuk kriteria '{strategi}' saat ini.")
-        st.info("Tips: Pasar mungkin sedang koreksi/sepi. Coba ubah filter di sebelah kiri.")
+            else: st.info("Tidak ada saham Early Trend.")
 
-st.markdown("---")
-st.caption("Klik 'Buka Chart' untuk langsung analisa di TradingView.")
+            # HASIL 2: EXTENDED
+            df_ext = df[df['Status'].str.contains("EXTENDED")]
+            if not df_ext.empty:
+                with st.expander("⚠️ Lihat Saham Extended (Rawan)"):
+                    st.dataframe(
+                        df_ext.style.format({"Harga": "{:.0f}", "GarisMerah": "{:.0f}", "Jarak%": "{:.1f}", "Val(M)": "{:.1f}"}), 
+                        use_container_width=True, hide_index=True
+                    )
+        else: st.error("Data tidak ditemukan.")
