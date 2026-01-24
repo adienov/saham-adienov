@@ -22,7 +22,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER & INPUT ---
-st.title("📱 Adienov Pro: V11")
+st.title("📱 Noris Trading System")
 st.caption("Alpha Hunter • System vs IHSG • Performance Audit")
 
 # --- BAROMETER IHSG (LIVE STATUS) ---
