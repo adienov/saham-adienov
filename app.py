@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import pytz
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V16", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System V17", layout="wide", initial_sidebar_state="expanded")
 
 # CSS: Styling
 st.markdown("""
@@ -19,14 +19,16 @@ st.markdown("""
         div[data-testid="stDataFrame"] th { text-align: center !important; background-color: #f8f9fa; color: #495057; }
         div[data-testid="stDataFrame"] td { text-align: center !important; }
         .streamlit-expanderHeader { font-weight: bold; color: #007BFF; background-color: #e9ecef; border-radius: 5px; }
+        /* Box Metric */
+        div[data-testid="stMetricValue"] { font-size: 1.2rem !important; }
     </style>
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER ---
-st.title("📱 Noris Trading System V16")
-st.caption("Anti-Sluggish: Volatility Filter Included")
+st.title("📱 Noris Trading System V17")
+st.caption("Performance Audit: System vs IHSG • Money Management • Anti-Sluggish")
 
-# --- BAROMETER IHSG ---
+# --- BAROMETER IHSG (LIVE) ---
 def get_ihsg_status():
     try:
         ihsg = yf.download("^JKSE", period="3mo", progress=False)
@@ -40,17 +42,32 @@ def get_ihsg_status():
 ihsg_stat, ihsg_advice, ihsg_col = get_ihsg_status()
 st.info(f"**STATUS IHSG:** {ihsg_stat} | {ihsg_advice}")
 
+# --- FUNGSI RETURN IHSG (UNTUK BACKTEST) ---
+def get_ihsg_return(days_back):
+    try:
+        ihsg = yf.download("^JKSE", period="3mo", progress=False)
+        if isinstance(ihsg.columns, pd.MultiIndex): ihsg = ihsg.xs("^JKSE", level=1, axis=1)
+        price_now = ihsg['Close'].iloc[-1]
+        # Estimasi index hari bursa (jika libur ambil sebelumnya)
+        idx_back = -(days_back + 1)
+        if abs(idx_back) > len(ihsg): idx_back = 0
+        price_then = ihsg['Close'].iloc[idx_back] 
+        ret_ihsg = ((price_now - price_then) / price_then) * 100
+        return ret_ihsg
+    except: return 0.0
+
 # --- EXPANDER KAMUS ---
 with st.expander("📖 KAMUS & CARA BACA (Klik Disini)"):
     st.markdown("""
-    ### 1. 🚦 Sinyal Noris V16
+    ### 1. 🚦 Sinyal Noris
     * **🚀 BREAKOUT:** Harga jebol atap tertinggi 20 hari.
-    * **🔥 FOLLOW UP:** Harga jebol High Candle Kemarin (Syarat Beli Baru).
-    * **⚡ VOLATILE:** Saham bergerak agresif (>3% per hari). Anti Lelet.
+    * **🔥 FOLLOW UP:** Harga jebol High Candle Kemarin.
+    * **⚡ HIGH SPEED:** Saham agresif (ATR > 3%).
     
-    ### 2. 💰 Money Management
-    * **MAX LOT:** Jumlah lot disarankan `(Modal x %Resiko) / Jarak SL`.
-    * **ATR% (Speed):** Kecepatan gerak saham. Jika < 1.5% artinya lelet.
+    ### 2. 📊 Rapor Kinerja (Backtest)
+    * **ALPHA:** Selisih keuntungan System vs IHSG.
+    * **Positif (+):** System mengalahkan pasar.
+    * **Negatif (-):** System kalah dari pasar.
     """)
 
 # --- 3. SIDEBAR (INPUT) ---
@@ -65,9 +82,7 @@ st.sidebar.subheader("🔍 Filter Saham")
 backtest_days = st.sidebar.slider("⏳ Mundur Hari (Backtest)", 0, 30, 0)
 min_trans = st.sidebar.number_input("Min. Transaksi (Miliar)", value=2.0, step=0.5)
 risk_tol = st.sidebar.slider("Toleransi Trend (%)", 1.0, 10.0, 5.0)
-
-# FITUR BARU: FILTER VOLATILITAS
-min_volatility = st.sidebar.slider("Min. Volatilitas/Speed (%)", 0.5, 5.0, 1.5, step=0.5, help="Filter saham lelet. Standar: 1.5%")
+min_volatility = st.sidebar.slider("Min. Volatilitas/Speed (%)", 0.5, 5.0, 1.5, step=0.5)
 
 # --- DATABASE SAHAM ---
 tickers = [
@@ -109,23 +124,16 @@ def scan_market(min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vo
             signal_close = float(df['Close'].iloc[-1])
             prev_high = float(df['High'].iloc[-2])
             
-            # --- 1. FILTER VOLATILITAS (ATR%) ---
-            # Hitung ATR 14 Hari
+            # 1. FILTER VOLATILITAS
             df['ATR'] = df.ta.atr(length=14)
             current_atr = df['ATR'].iloc[-1]
-            
-            # Hitung Persentase Gerak Harian (ATR%)
             atr_pct = (current_atr / signal_close) * 100
-            
-            # Buang saham yang lelet (di bawah batas minimal settingan user)
             if atr_pct < min_vol_pct: continue
             
-            # Label Volatilitas
             vol_label = "NORMAL"
             if atr_pct > 3.0: vol_label = "⚡ HIGH"
-            elif atr_pct < 1.5: vol_label = "🐌 SLOW"
 
-            # --- 2. INDIKATOR LAIN ---
+            # 2. INDIKATOR TREND
             df['HL2'] = (df['High'] + df['Low']) / 2
             df['Teeth_Raw'] = df.ta.sma(close='HL2', length=8)
             red_line = float(df['Teeth_Raw'].iloc[-6]) if not pd.isna(df['Teeth_Raw'].iloc[-6]) else 0
@@ -136,17 +144,15 @@ def scan_market(min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vo
             avg_val = (signal_close * df['Volume'].mean()) / 1000000000 
             if avg_val < min_val_m: continue
             
-            # Volume Spike Check
             curr_vol = df['Volume'].iloc[-1]
             avg_vol_20 = df['Volume'].rolling(window=20).mean().iloc[-1]
             vol_ratio = curr_vol / avg_vol_20 if avg_vol_20 > 0 else 0
             vol_spike_status = "NORMAL"
             if vol_ratio >= 2.0: vol_spike_status = "🔥 SPIKE"
 
-            # --- 3. LOGIKA SINYAL (V15 Logic) ---
+            # 3. LOGIKA SINYAL
             status = ""
             priority = 0
-            
             if signal_close > breakout_level:
                 status = "🚀 BREAKOUT"
                 priority = 1
@@ -164,7 +170,7 @@ def scan_market(min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vo
                 priority = 4
                 diff = 0
 
-            # Backtest
+            # Backtest Val
             performance_label = "⏳ WAIT"
             perf_val = 0
             if days_back > 0 and "WAIT" not in status:
@@ -194,7 +200,7 @@ def scan_market(min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vo
                 "Emiten": ticker_clean,
                 "Jenis": label_syariah,
                 "Status": status,
-                "Speed": f"{atr_pct:.1f}%", # Kolom Baru
+                "Speed": f"{atr_pct:.1f}%",
                 "Vol Spike": vol_spike_status,
                 "Buy": int(signal_close),
                 "Hasil": performance_label,
@@ -233,12 +239,35 @@ if st.button(btn_txt):
     if backtest_days > 0: st.warning(f"🕒 **BACKTEST:** {tgl_sinyal.strftime('%d %B %Y')}")
     else: st.success(f"📅 **LIVE:** {tgl_skrg.strftime('%d %B %Y')}")
 
-    with st.spinner('Memfilter saham lelet...'):
+    with st.spinner('Menganalisa Kinerja & Pasar...'):
         df = scan_market(min_trans, risk_tol, backtest_days, modal_juta, risk_per_trade_pct, min_volatility)
         
         if not df.empty:
             df_buy = df[df['Status'].str.contains("BREAKOUT|FOLLOW")]
             
+            # --- RAPOR KINERJA & HEAD-TO-HEAD (KEMBALI HADIR!) ---
+            if backtest_days > 0 and not df_buy.empty:
+                st.subheader("🥊 HEAD-TO-HEAD: SYSTEM VS IHSG")
+                
+                # 1. Hitung Return System
+                avg_sys_return = df_buy['PerfVal'].mean()
+                
+                # 2. Hitung Return IHSG
+                ihsg_ret = get_ihsg_return(backtest_days)
+                
+                # 3. Hitung Alpha
+                alpha = avg_sys_return - ihsg_ret
+                
+                # Tampilkan
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Kinerja NORIS SYSTEM", f"{avg_sys_return:.2f}%", "Rata-rata Sinyal Buy")
+                c2.metric("Kinerja IHSG", f"{ihsg_ret:.2f}%", "Benchmark Pasar")
+                alpha_label = "MENGALAHKAN PASAR 🔥" if alpha > 0 else "KALAH DARI PASAR ⚠️"
+                c3.metric("ALPHA (Selisih)", f"{alpha:.2f}%", alpha_label, delta_color="normal" if alpha > 0 else "inverse")
+                
+                st.markdown("---")
+            
+            # --- TABEL HASIL ---
             if not df_buy.empty:
                 df_buy = df_buy.reset_index(drop=True)
                 df_buy.insert(0, 'No', range(1, 1 + len(df_buy)))
@@ -264,5 +293,5 @@ if st.button(btn_txt):
                     .applymap(lambda x: 'background-color: #cce5ff; color: #004085; font-weight: bold;', subset=['Max Lot'])
                 )
                 st.dataframe(styled_df, column_config=column_config, use_container_width=True, hide_index=True)
-            else: st.info(f"Tidak ada saham yang Break High & Volatilitas > {min_volatility}% hari ini.")
+            else: st.info(f"Tidak ada sinyal Buy yang memenuhi kriteria.")
         else: st.error("Data tidak ditemukan.")
