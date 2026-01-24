@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import pytz
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Adienov Backtest", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Adienov Pro V8", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
     <style>
@@ -16,20 +16,62 @@ st.markdown("""
         div.stButton > button { width: 100%; border-radius: 20px; background-color: #007BFF; color: white !important; font-weight: bold;}
         .dataframe { text-align: center !important; }
         th { text-align: center !important; }
+        
+        /* Box Barometer IHSG */
+        div[data-testid="stMetricValue"] { font-size: 1.2rem !important; }
     </style>
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER & INPUT ---
-st.title("📱 Adienov Pro: Time Machine")
-st.caption("Analisa Real-time & Uji Mundur (Backtest)")
+st.title("📱 Adienov Pro: V8")
+st.caption("Market Barometer • Time Machine • Trading Plan")
+
+# --- FITUR BARU: BAROMETER IHSG ---
+def get_ihsg_status():
+    try:
+        ihsg = yf.download("^JKSE", period="3mo", progress=False)
+        if isinstance(ihsg.columns, pd.MultiIndex): ihsg = ihsg.xs("^JKSE", level=1, axis=1)
+        
+        current_price = ihsg['Close'].iloc[-1]
+        prev_price = ihsg['Close'].iloc[-2]
+        change_pct = ((current_price - prev_price) / prev_price) * 100
+        
+        # Analisa Trend (MA20)
+        ma20 = ihsg['Close'].rolling(window=20).mean().iloc[-1]
+        
+        status = "NETRAL"
+        advice = "Hati-hati"
+        color_code = "off"
+        
+        if current_price > ma20:
+            status = "🟢 BULLISH (UPTREND)"
+            advice = "✅ Market Aman. Fokus saham Breakout & Early Trend."
+            color_code = "normal" # Hijau di Streamlit
+        else:
+            status = "🔴 BEARISH (DOWNTREND)"
+            advice = "⚠️ Market Rawan! Kurangi porsi trading / Cash is King."
+            color_code = "inverse" # Merah di Streamlit
+            
+        return current_price, change_pct, status, advice, color_code
+    except:
+        return 0, 0, "OFFLINE", "Gagal mengambil data IHSG", "off"
+
+# Tampilkan Barometer di Atas
+ihsg_price, ihsg_chg, ihsg_stat, ihsg_advice, ihsg_col = get_ihsg_status()
+
+# Layout Barometer (3 Kolom Kecil)
+c1, c2 = st.columns([1, 2])
+with c1:
+    st.metric("IHSG (Composite)", f"{ihsg_price:.0f}", f"{ihsg_chg:.2f}%", delta_color=ihsg_col)
+with c2:
+    st.info(f"**STATUS: {ihsg_stat}**\n\n💡 {ihsg_advice}")
+
+st.divider()
 st.info("⚙️ **SETTING:** Klik panah **( > )** di kiri atas untuk Mode Mundur.")
 
 with st.sidebar:
     st.header("⚙️ Filter & Waktu")
-    
-    # --- FITUR BARU: MESIN WAKTU ---
-    backtest_days = st.slider("⏳ Mundur Berapa Hari?", 0, 30, 0, help="0 = Hari Ini. Geser untuk cek performa sinyal masa lalu.")
-    
+    backtest_days = st.slider("⏳ Mundur Berapa Hari?", 0, 30, 0)
     st.divider()
     min_trans = st.number_input("Min. Transaksi (Miliar)", value=2.0, step=0.5)
     risk_tol = st.slider("Toleransi Trend (%)", 1.0, 10.0, 5.0)
@@ -47,7 +89,7 @@ tickers = [
 
 non_syariah_list = ["BBCA", "BBRI", "BMRI", "BBNI", "BBTN", "BDMN", "BNGA", "NISP", "GGRM", "HMSP", "WIIM", "RMBA", "MAYA", "NOBU", "ARTO"]
 
-# --- 4. FUNGSI SCANNER CANGGIH ---
+# --- 4. FUNGSI SCANNER ---
 @st.cache_data(ttl=60)
 def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio, days_back):
     results = []
@@ -60,42 +102,32 @@ def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio, days_back):
         text_progress.text(f"Analisa {ticker_clean}... ({i+1}/{total})")
         
         try:
-            # Ambil data lebih panjang agar bisa dipotong
             df_full = yf.download(ticker, period="6mo", progress=False)
-            
-            # --- LOGIKA MESIN WAKTU ---
             if df_full.empty or len(df_full) < (turtle_window + 5 + days_back): continue
             
             try:
                 if isinstance(df_full.columns, pd.MultiIndex): df_full = df_full.xs(ticker, level=1, axis=1)
             except: pass
 
-            # Harga HARI INI (Real) - Untuk Validasi
             real_current_price = float(df_full['Close'].iloc[-1])
 
-            # Potong Data (Simulasi Masa Lalu)
             if days_back > 0:
-                df = df_full.iloc[:-days_back].copy() # Data berhenti di X hari lalu
+                df = df_full.iloc[:-days_back].copy()
             else:
-                df = df_full.copy() # Data hari ini
+                df = df_full.copy()
 
-            # --- INDIKATOR (Dihitung berdasarkan data potongan) ---
             df['HL2'] = (df['High'] + df['Low']) / 2
             df['Teeth_Raw'] = df.ta.sma(close='HL2', length=8)
             
-            # Harga pada SAAT SINYAL MUNCUL (Masa Lalu)
             signal_close = float(df['Close'].iloc[-1])
             red_line = float(df['Teeth_Raw'].iloc[-6]) if not pd.isna(df['Teeth_Raw'].iloc[-6]) else 0
             
-            # Breakout Logic
             high_rolling = df['High'].rolling(window=turtle_window).max().shift(1)
             breakout_level = float(high_rolling.iloc[-1])
 
-            # Volume Check
             avg_val = (signal_close * df['Volume'].mean()) / 1000000000 
             if avg_val < min_val_m: continue
 
-            # --- PENENTUAN SINYAL ---
             status = ""
             priority = 0
 
@@ -118,12 +150,10 @@ def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio, days_back):
                 priority = 4
                 diff = 0
 
-            # --- HITUNG HASIL (EFEKTIVITAS) ---
             performance_label = "⏳ MENUNGGU"
             perf_val = 0
             
             if days_back > 0 and "DOWN" not in status:
-                # Hitung selisih harga Hari Ini vs Harga Sinyal Dulu
                 change_pct = ((real_current_price - signal_close) / signal_close) * 100
                 perf_val = change_pct
                 if change_pct > 0:
@@ -133,10 +163,8 @@ def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio, days_back):
             elif days_back == 0:
                 performance_label = "🆕 HARI INI"
 
-            # Syariah Check
             label_syariah = "⛔ NON" if ticker_clean in non_syariah_list else "✅ SYARIAH"
 
-            # Plan
             stop_loss = int(red_line)
             risk_amt = signal_close - stop_loss
             take_profit = int(signal_close + (risk_amt * reward_ratio))
@@ -149,7 +177,7 @@ def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio, days_back):
                 "Status": status,
                 "Buy (Dulu)": int(signal_close),
                 "Harga (Kini)": int(real_current_price) if days_back > 0 else "-",
-                "Hasil": performance_label, # Kolom Baru
+                "Hasil": performance_label,
                 "SL": stop_loss,
                 "TP": take_profit,
                 "Risk%": round(diff, 1),
@@ -166,7 +194,6 @@ def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio, days_back):
     
     df_res = pd.DataFrame(results)
     if not df_res.empty:
-        # Urutkan berdasarkan Win Rate tertinggi jika Backtest
         if days_back > 0:
             df_res = df_res.sort_values(by=["PerfVal"], ascending=False)
         else:
@@ -178,20 +205,18 @@ def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio, days_back):
 btn_label = "🔍 SCAN HARI INI" if st.session_state.get('days_back', 0) == 0 else f"⏮️ CEK {st.session_state.get('days_back', 0)} HARI LALU"
 if st.button(f"RUN SCANNER ({'HARI INI' if backtest_days==0 else f'MUNDUR {backtest_days} HARI'})"):
     
-    # Keterangan Tanggal
     tgl_skrg = datetime.now(pytz.timezone('Asia/Jakarta'))
     tgl_sinyal = tgl_skrg - timedelta(days=backtest_days)
     
     if backtest_days > 0:
-        st.warning(f"🕒 **MODE BACKTEST:** Menampilkan sinyal tanggal **{tgl_sinyal.strftime('%d %B %Y')}** dan hasilnya hari ini.")
+        st.warning(f"🕒 **BACKTEST:** Cek sinyal tgl **{tgl_sinyal.strftime('%d %B %Y')}**")
     else:
-        st.success(f"📅 **MODE LIVE:** Data Pasar Real-time **{tgl_skrg.strftime('%d %B %Y')}**")
+        st.success(f"📅 **LIVE:** Data Pasar **{tgl_skrg.strftime('%d %B %Y')}**")
 
-    with st.spinner('Menjalankan simulasi...'):
+    with st.spinner('Menjalankan scanner...'):
         df = scan_market(min_trans, risk_tol, turtle_day, rr_ratio, backtest_days)
         
         if not df.empty:
-            # Konfigurasi Kolom
             column_config = {
                 "Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka"),
                 "Buy (Dulu)": st.column_config.NumberColumn("Harga Sinyal", format="Rp %d"),
@@ -201,11 +226,10 @@ if st.button(f"RUN SCANNER ({'HARI INI' if backtest_days==0 else f'MUNDUR {backt
                 "Risk%": st.column_config.NumberColumn("Jarak SL", format="%.1f %%"),
             }
 
-            # Filter Sinyal Buy
             df_buy = df[df['Status'].str.contains("BREAKOUT|EARLY")]
             
             if not df_buy.empty:
-                st.subheader("📊 HASIL ANALISA EFEKTIVITAS")
+                st.subheader("📊 HASIL ANALISA")
                 
                 styled_df = (df_buy.drop(columns=['Priority', 'PerfVal']).style
                     .format({"Buy (Dulu)": "{:.0f}", "SL": "{:.0f}", "TP": "{:.0f}", "Risk%": "{:.1f}"})
@@ -213,7 +237,6 @@ if st.button(f"RUN SCANNER ({'HARI INI' if backtest_days==0 else f'MUNDUR {backt
                     .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
                     .background_gradient(subset=['Risk%'], cmap="Greens")
                     .applymap(lambda x: 'color: red; font-weight: bold;', subset=['SL'])
-                    # Warnai Hasil: Hijau jika WIN, Merah jika LOSS
                     .applymap(lambda x: 'background-color: #d4edda; color: green; font-weight: bold;' if 'WIN' in str(x) else ('background-color: #f8d7da; color: red; font-weight: bold;' if 'LOSS' in str(x) else ''), subset=['Hasil'])
                 )
 
