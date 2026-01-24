@@ -5,10 +5,9 @@ import pandas_ta as ta
 from datetime import datetime, timedelta
 import pytz
 import numpy as np
-import time
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V26", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System V27", layout="wide", initial_sidebar_state="expanded")
 
 # CSS: Styling
 st.markdown("""
@@ -25,8 +24,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER ---
-st.title("📱 Noris Trading System V26")
-st.caption("Smart Scan: Technical First -> Fundamental Later (Anti-Block)")
+st.title("📱 Noris Trading System V27")
+st.caption("Lightspeed Edition: High Performance Technical Scanner")
 
 # --- BAROMETER IHSG ---
 def get_ihsg_status():
@@ -71,14 +70,10 @@ def get_performance_history(tickers_list, days_back):
 # --- EXPANDER KAMUS ---
 with st.expander("📖 KAMUS & CARA BACA (Klik Disini)"):
     st.markdown("""
-    ### 1. 💎 Valuasi
-    * **Note:** Data Fundamental hanya diambil untuk saham yang berstatus BUY untuk menghemat kuota Yahoo Finance.
-    * **PBV:** `< 1.0` (Murah), `> 3.0` (Mahal).
-    * **Fair Value:** Estimasi Harga Wajar.
-
-    ### 2. 🚦 Sinyal Teknikal
-    * **🚀 BREAKOUT:** Jebol High 20 Hari.
-    * **🔥 FOLLOW UP:** Jebol High Kemarin.
+    ### 🚦 Sinyal Teknikal
+    * **🚀 BREAKOUT:** Harga jebol Highest High 20 Hari.
+    * **🔥 FOLLOW UP:** Harga jebol High Kemarin.
+    * **🟢 EARLY TREND:** Harga > Garis Merah (Alligator).
     """)
 
 # --- 3. SIDEBAR (INPUT) ---
@@ -103,11 +98,6 @@ else:
     tickers = [f"{x}.JK" if not x.endswith(".JK") else x for x in cleaned_input if x]
 
 st.sidebar.divider()
-
-st.sidebar.subheader("💎 Analisa Fundamental")
-use_fundamental = st.sidebar.checkbox("Cek Valuasi (Smart Mode)", value=False, help="Hanya cek fundamental untuk saham yang SINYAL BUY.")
-
-st.sidebar.divider()
 st.sidebar.subheader("💰 Money Management")
 modal_juta = st.sidebar.number_input("Modal Trading (Juta Rp)", value=100, step=10)
 risk_per_trade_pct = st.sidebar.slider("Resiko per Trade (%)", 0.5, 5.0, 2.0, step=0.5)
@@ -122,8 +112,8 @@ min_volatility = st.sidebar.slider("Min. Volatilitas/Speed (%)", 0.0, 5.0, 0.0, 
 non_syariah_list = ["BBCA", "BBRI", "BMRI", "BBNI", "BBTN", "BDMN", "BNGA", "NISP", "GGRM", "HMSP", "WIIM", "RMBA", "MAYA", "NOBU", "ARTO"]
 
 # --- 4. ENGINE SCANNER ---
-@st.cache_data(ttl=300) 
-def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vol_pct, check_fund):
+@st.cache_data(ttl=60) 
+def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vol_pct):
     results = []
     selected_tickers = []
     
@@ -139,7 +129,7 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
         text_progress.text(f"Scanning {ticker_clean}... ({i+1}/{total})")
         
         try:
-            # 1. AMBIL DATA TEKNIKAL DULU (RINGAN)
+            # 1. AMBIL DATA TEKNIKAL (TANPA FUNDAMENTAL)
             ticker_obj = yf.Ticker(ticker)
             df_full = ticker_obj.history(period="1y")
             
@@ -179,7 +169,7 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
             vol_spike_status = "NORMAL"
             if vol_ratio >= 2.0: vol_spike_status = "🔥 SPIKE"
 
-            # 2. TENTUKAN STATUS (BELI ATAU TIDAK)
+            # 2. LOGIKA SINYAL
             status = ""
             priority = 0
             
@@ -201,47 +191,12 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
                 priority = 5
                 diff = 0
 
-            # 3. AMBIL DATA FUNDAMENTAL (HANYA JIKA SINYAL BUY)
-            # Ini kuncinya: Kita tidak ambil data kalau statusnya WAIT/DOWN/EXTENDED
-            pbv = 0.0
-            fair_value = 0.0
-            val_status = "-"
-            
-            is_valid_buy = "BREAKOUT" in status or "FOLLOW" in status or "EARLY" in status
-            
-            if check_fund and days_back == 0 and is_valid_buy:
-                try:
-                    time.sleep(0.5) # Jeda aman
-                    info = ticker_obj.info
-                    
-                    pbv = info.get('priceToBook', 0)
-                    book_val = info.get('bookValue', 0)
-                    eps = info.get('trailingEps', 0)
-                    
-                    # Fallback jika None
-                    if pbv is None: pbv = 0
-                    if book_val is None: book_val = 0
-                    if eps is None: eps = 0
-                    
-                    if eps > 0 and book_val > 0:
-                        fair_value = np.sqrt(22.5 * eps * book_val)
-                    else:
-                        fair_value = 0
-                    
-                    current_prc = df_full['Close'].iloc[-1]
-                    if fair_value > 0:
-                        if current_prc < fair_value: val_status = "✅ MURAH"
-                        else: val_status = "⚠️ MAHAL"
-                    else:
-                        val_status = "⚪ N/A"
-                except:
-                    val_status = "❌ SKIP"
-
-            # Backtest Calc
+            # 3. BACKTEST CALCULATION
             performance_label = "⏳ WAIT"
             perf_val = 0
+            is_buy_signal = "BREAKOUT" in status or "FOLLOW" in status or "EARLY" in status
             
-            if days_back > 0 and is_valid_buy:
+            if days_back > 0 and is_buy_signal:
                 real_current_price = float(df_full['Close'].iloc[-1])
                 change_pct = ((real_current_price - signal_close) / signal_close) * 100
                 perf_val = change_pct
@@ -281,12 +236,6 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
                 "PerfVal": perf_val,
                 "VolRatio": vol_ratio
             }
-            
-            if use_fundamental and days_back == 0:
-                result_row["PBV"] = round(pbv, 2)
-                result_row["FairVal"] = int(fair_value)
-                result_row["Valuasi"] = val_status
-
             results.append(result_row)
 
         except: continue
@@ -315,7 +264,7 @@ if st.button(btn_txt):
     else: st.success(f"📅 **LIVE:** {tgl_skrg.strftime('%d %B %Y')}")
 
     with st.spinner('Menganalisa Portofolio...'):
-        df, sel_tickers = scan_market(tickers, min_trans, risk_tol, backtest_days, modal_juta, risk_per_trade_pct, min_volatility, use_fundamental)
+        df, sel_tickers = scan_market(tickers, min_trans, risk_tol, backtest_days, modal_juta, risk_per_trade_pct, min_volatility)
         
         if not df.empty:
             df_buy = df[df['Status'].str.contains("BREAKOUT|FOLLOW|EARLY")]
@@ -365,12 +314,6 @@ if st.button(btn_txt):
                         "Risk%": st.column_config.NumberColumn("Risk", format="%.1f %%"),
                     }
                     cols_to_show = ['No', 'Emiten', 'Status', 'Buy', 'Max Lot', 'SL', 'TP', 'Risk%', 'Chart']
-                    
-                    if use_fundamental:
-                        column_config["FairVal"] = st.column_config.NumberColumn("Harga Wajar", format="Rp %d")
-                        column_config["PBV"] = st.column_config.NumberColumn("PBV", format="%.2fx")
-                        cols_to_show = ['No', 'Emiten', 'Valuasi', 'Status', 'Buy', 'FairVal', 'PBV', 'Max Lot', 'SL', 'TP', 'Risk%', 'Chart']
-                    
                     final_df = df_buy[cols_to_show]
 
                 styled_df = (final_df.style
@@ -382,9 +325,6 @@ if st.button(btn_txt):
                 if backtest_days == 0:
                     styled_df = styled_df.applymap(lambda x: 'background-color: #cce5ff; color: #004085; font-weight: bold;', subset=['Max Lot'])
                     styled_df = styled_df.applymap(lambda x: 'color: red; font-weight: bold;', subset=['SL'])
-                    
-                    if use_fundamental:
-                         styled_df = styled_df.applymap(lambda x: 'color: green; font-weight: bold;' if 'MURAH' in str(x) else 'color: red;', subset=['Valuasi'])
 
                 st.dataframe(styled_df, column_config=column_config, use_container_width=True, hide_index=True)
             else: st.info(f"Tidak ada sinyal Buy.")
