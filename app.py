@@ -1,88 +1,135 @@
-
 import streamlit as st
-import yfinance as yf
 import pandas as pd
-import pandas_ta as ta
+import yfinance as yf
 from datetime import datetime
-import pytz
 
-st.set_page_config(page_title="Adienov Trading", layout="wide", initial_sidebar_state="expanded")
-st.markdown("""
-    <style>
-        .stApp { background-color: #FFFFFF; color: #000000; }
-        div[data-testid="stSidebar"] { background-color: #F8F9FA; }
-        h1, h2, h3, p, span, div, li { color: #212529 !important; }
-        div[data-testid="stDataFrame"] { font-size: 14px; }
-        div.stButton > button { background-color: #007BFF; color: white !important; font-weight: bold; }
-        div[data-testid="stAlert"] { padding: 10px; border-radius: 5px; }
-        div[data-testid="stExpander"] { background-color: #E9ECEF; border-radius: 10px; }
-    </style>
-""", unsafe_allow_html=True)
+# --- 1. KONFIGURASI HALAMAN ---
+st.set_page_config(page_title="Adienov Super Scanner", page_icon="📈", layout="wide")
 
-st.title("📈 Adienov Trading System")
-st.caption("Personalized Screener: Alligator + Risk Management")
+# --- 2. LIST SAHAM (Bisa ditambah manual) ---
+# Contoh 20 Saham Liquid (Bisa Bapak tambah jadi 100 atau semua Kompas100)
+tickers = [
+    "BBRI.JK", "BBCA.JK", "BMRI.JK", "BBNI.JK", "TLKM.JK", "ASII.JK", "UNTR.JK", "ICBP.JK", 
+    "INDF.JK", "KLBF.JK", "BRIS.JK", "ANTM.JK", "MDKA.JK", "PGAS.JK", "PTBA.JK", "ADRO.JK",
+    "INKP.JK", "TPIA.JK", "GOTO.JK", "AMMN.JK", "BREN.JK", "CUAN.JK", "PTRO.JK", "PANI.JK"
+]
 
-with st.expander("📖 PANDUAN: CARA BACA & TINDAKAN (Klik Disini)", expanded=False):
-    c1, c2 = st.columns(2)
-    with c1:
-        st.subheader("1. Arti Status")
-        st.markdown("* **🟢 EARLY (Aman):** Jarak < 5%. **BUY.**\n* **⚠️ EXTENDED (Rawan):** Jarak > 5%. **WAIT.**\n* **🔴 DOWN (Bahaya):** Harga di bawah Garis Merah. **CASH.**")
-    with c2:
-        st.subheader("2. SOP Harian")
-        st.markdown("1. Scan malam hari.\n2. Catat saham **EARLY**.\n3. Cek chart TradingView besok pagi.")
+# --- 3. SIDEBAR (PENGATURAN) ---
+st.sidebar.header("⚙️ PENGATURAN ROBOT")
 
-st.divider()
+# A. PILIHAN STRATEGI (FITUR BARU)
+strategi = st.sidebar.selectbox(
+    "PILIH STRATEGI:",
+    ("🟢 Reversal (Early Buy)", "🚀 Breakout (Uptrend)")
+)
 
-with st.sidebar:
-    st.header("⚙️ Filter")
-    min_trans = st.number_input("Min. Transaksi (Miliar)", value=2.0, step=0.5)
-    risk_tol = st.slider("Batas Early Trend (%)", 1.0, 10.0, 5.0)
+st.sidebar.divider()
 
-tickers = ["ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "ASII.JK", "ADRO.JK", "PTBA.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "SIDO.JK", "MDKA.JK", "INCO.JK", "MBMA.JK", "AMRT.JK", "ACES.JK", "HRUM.JK", "AKRA.JK", "MEDC.JK", "ELSA.JK", "BRMS.JK", "DEWA.JK", "BUMI.JK", "UNVR.JK", "MYOR.JK", "CPIN.JK", "JPFA.JK", "SMGR.JK", "INTP.JK", "TPIA.JK"]
+# B. FILTER UMUM
+min_transaksi = st.sidebar.number_input("Min. Transaksi (Miliar)", value=2.0, step=0.5)
 
-def scan_market(min_val_m, risk_pct):
-    results = []
-    progress_bar = st.progress(0)
-    for i, ticker in enumerate(tickers):
-        try:
-            df = yf.download(ticker, period="3mo", progress=False)
-            if df.empty or len(df) < 20: continue
-            try:
-                if isinstance(df.columns, pd.MultiIndex): df = df.xs(ticker, level=1, axis=1)
-            except: pass
-            df['HL2'] = (df['High'] + df['Low']) / 2
-            df['Teeth_Raw'] = df.ta.sma(close='HL2', length=8)
-            if pd.isna(df['Teeth_Raw'].iloc[-6]) or pd.isna(df['Close'].iloc[-1]): continue
-            current_close = float(df['Close'].iloc[-1])
-            red_line = float(df['Teeth_Raw'].iloc[-6])
-            avg_val = (current_close * df['Volume'].mean()) / 1000000000 
-            if avg_val < min_val_m: continue
-            status = ""
-            if current_close > red_line:
-                diff = ((current_close - red_line) / current_close) * 100
-                if diff <= risk_pct: status = "🟢 EARLY"
-                else: status = "⚠️ EXTENDED"
-            else:
-                diff = ((red_line - current_close) / current_close) * 100
-                status = "🔴 DOWN"
-            results.append({ "Saham": ticker.replace(".JK", ""), "Harga": int(current_close), "Garis Merah": int(red_line), "Status": status, "Jarak (%)": round(diff, 1), "Val (M)": round(avg_val, 1) })
-        except: continue
-        progress_bar.progress((i + 1) / len(tickers))
-    progress_bar.empty()
-    return pd.DataFrame(results)
+# C. SETTING KHUSUS
+if strategi == "🟢 Reversal (Early Buy)":
+    st.sidebar.info("Mencari saham yang baru mantul dari Garis Merah (Alligator).")
+    toleransi = st.sidebar.slider("Jarak Toleransi (%)", 1.0, 10.0, 5.0)
+else:
+    st.sidebar.info("Mencari saham Uptrend yang menembus harga tertinggi 20 hari.")
+    lookback = st.sidebar.slider("Periode Breakout (Hari)", 10, 60, 20) # Default 20 Hari (Turtle)
 
-if st.button("🔍 MULAI SCAN SEKARANG", type="primary"):
-    with st.spinner('Sedang memindai pasar...'):
-        waktu_skrg = datetime.now(pytz.timezone('Asia/Jakarta')).strftime("%d %B %Y, Pukul %H:%M:%S WIB")
-        df = scan_market(min_trans, risk_tol)
-        if not df.empty:
-            st.success(f"✅ **DATA VALID & TERBARU** | Di-scan pada: **{waktu_skrg}**")
-            st.subheader("🔥 Rekomendasi: EARLY BUY")
-            df_early = df[df['Status'].str.contains("EARLY")]
-            if not df_early.empty: st.dataframe(df_early.style.background_gradient(subset=['Jarak (%)'], cmap="Greens").format({"Harga": "{:.0f}", "Garis Merah": "{:.0f}", "Jarak (%)": "{:.1f}", "Val (M)": "{:.1f} M"}), use_container_width=True, hide_index=True)
-            else: st.info("Belum ada saham Early Trend.")
-            st.subheader("⚠️ Waspada: EXTENDED")
-            df_ext = df[df['Status'].str.contains("EXTENDED")]
-            if not df_ext.empty: st.dataframe(df_ext.style.format({"Harga": "{:.0f}", "Garis Merah": "{:.0f}", "Jarak (%)": "{:.1f}", "Val (M)": "{:.1f} M"}), use_container_width=True, hide_index=True)
-        else: st.error("Data tidak ditemukan.")
-    
+# --- 4. FUNGSI ANALISA ---
+def analyze_stock(ticker, strategy_mode):
+    try:
+        # Ambil data agak panjang untuk hitung MA dan Breakout
+        df = yf.download(ticker, period="6mo", interval="1d", progress=False)
+        
+        if len(df) < 60: return None # Skip jika data kurang
+        
+        # Data Terakhir
+        last_close = float(df['Close'].iloc[-1])
+        last_open  = float(df['Open'].iloc[-1])
+        last_vol   = float(df['Volume'].iloc[-1])
+        prev_close = float(df['Close'].iloc[-2])
+        
+        # Hitung Transaksi Harian (Miliar)
+        avg_vol = df['Volume'].rolling(20).mean().iloc[-1]
+        transaksi_m = (last_close * avg_vol) / 1_000_000_000
+        
+        if transaksi_m < min_transaksi: return None
+        
+        # --- LOGIKA STRATEGI ---
+        signal = False
+        info_text = ""
+        
+        if strategy_mode == "🟢 Reversal (Early Buy)":
+            # Rumus Alligator Simple (SMA 8 digeser)
+            # Kita simulasi manual: Ambil SMA 8 dari data yang digeser 5 hari lalu
+            # Agar sederhana di python, kita pakai SMA 13 sebagai pendekatan garis merah
+            ma_red = df['Close'].rolling(window=13).mean().iloc[-1] 
+            
+            # Syarat: Harga di atas Garis Merah TAPI jaraknya dekat
+            if last_close > ma_red:
+                jarak = ((last_close - ma_red) / last_close) * 100
+                if jarak <= toleransi:
+                    signal = True
+                    info_text = f"Jarak: {jarak:.1f}%"
+                    
+        elif strategy_mode == "🚀 Breakout (Uptrend)":
+            # 1. Cek Uptrend (Harga di atas MA 50)
+            ma_50 = df['Close'].rolling(window=50).mean().iloc[-1]
+            is_uptrend = last_close > ma_50
+            
+            # 2. Cek Breakout High (Harga Tertinggi N hari terakhir, exclude hari ini)
+            # Kita pakai iloc[:-1] untuk melihat High H-1 ke belakang
+            highest_price = df['High'].iloc[-lookback-1:-1].max()
+            
+            # Syarat: Uptrend DAN Harga Close Hari Ini > Highest Price Kemarin
+            # DAN Volume meledak (> Rata2)
+            is_breakout = last_close > highest_price
+            is_volume   = last_vol > avg_vol
+            
+            if is_uptrend and is_breakout and is_volume:
+                signal = True
+                pct_break = ((last_close - highest_price) / highest_price) * 100
+                info_text = f"Breakout +{pct_break:.1f}%"
+
+        if signal:
+            return {
+                "Saham": ticker.replace(".JK", ""),
+                "Harga": int(last_close),
+                "Perubahan": f"{((last_close - prev_close)/prev_close)*100:.2f}%",
+                "Volume (xAvg)": f"{last_vol/avg_vol:.1f}x",
+                "Info Signal": info_text
+            }
+            
+    except Exception as e:
+        return None
+    return None
+
+# --- 5. TAMPILAN UTAMA ---
+st.title(f"Adienov Scanner: {strategi}")
+st.write("Robot pencari saham otomatis berdasarkan algoritma pilihan.")
+
+if st.button("🔍 MULAI SCAN SEKARANG"):
+    with st.status("Sedang memindai pasar... Mohon tunggu...", expanded=True) as status:
+        results = []
+        progress_bar = st.progress(0)
+        
+        for i, tick in enumerate(tickers):
+            res = analyze_stock(tick, strategi)
+            if res:
+                results.append(res)
+            # Update progress
+            progress_bar.progress((i + 1) / len(tickers))
+            
+        status.update(label="Selesai!", state="complete", expanded=False)
+
+    if len(results) > 0:
+        st.success(f"Ditemukan {len(results)} Saham Potensial!")
+        df_hasil = pd.DataFrame(results)
+        st.dataframe(df_hasil, use_container_width=True)
+    else:
+        st.warning("Tidak ada saham yang memenuhi kriteria saat ini.")
+
+# Footer
+st.markdown("---")
+st.caption("Developed by Adienov System")
