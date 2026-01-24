@@ -5,10 +5,10 @@ import pandas_ta as ta
 from datetime import datetime, timedelta
 import pytz
 import numpy as np
-import time # Import Time untuk Jeda
+import time
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V25", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System V26", layout="wide", initial_sidebar_state="expanded")
 
 # CSS: Styling
 st.markdown("""
@@ -25,8 +25,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER ---
-st.title("📱 Noris Trading System V25")
-st.caption("Fix Update: Fundamental Data Fetcher (Anti-0)")
+st.title("📱 Noris Trading System V26")
+st.caption("Smart Scan: Technical First -> Fundamental Later (Anti-Block)")
 
 # --- BAROMETER IHSG ---
 def get_ihsg_status():
@@ -71,12 +71,10 @@ def get_performance_history(tickers_list, days_back):
 # --- EXPANDER KAMUS ---
 with st.expander("📖 KAMUS & CARA BACA (Klik Disini)"):
     st.markdown("""
-    ### 1. 💎 Valuasi (Fundamental)
-    * **PBV (Price to Book):**
-        * `< 1.0`: Murah (Undervalued).
-        * `> 3.0`: Mahal (Premium).
-    * **Fair Value (Graham):** Harga wajar berdasarkan Aset & Laba.
-    * **Diskon:** Jika harga saham LEBIH KECIL dari Fair Value = LAYAK INVESTASI.
+    ### 1. 💎 Valuasi
+    * **Note:** Data Fundamental hanya diambil untuk saham yang berstatus BUY untuk menghemat kuota Yahoo Finance.
+    * **PBV:** `< 1.0` (Murah), `> 3.0` (Mahal).
+    * **Fair Value:** Estimasi Harga Wajar.
 
     ### 2. 🚦 Sinyal Teknikal
     * **🚀 BREAKOUT:** Jebol High 20 Hari.
@@ -107,7 +105,7 @@ else:
 st.sidebar.divider()
 
 st.sidebar.subheader("💎 Analisa Fundamental")
-use_fundamental = st.sidebar.checkbox("Cek Valuasi (PBV & Fair Value)", value=False, help="PERINGATAN: Scan akan jadi LEBIH LAMBAT karena harus antri data.")
+use_fundamental = st.sidebar.checkbox("Cek Valuasi (Smart Mode)", value=False, help="Hanya cek fundamental untuk saham yang SINYAL BUY.")
 
 st.sidebar.divider()
 st.sidebar.subheader("💰 Money Management")
@@ -141,45 +139,12 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
         text_progress.text(f"Scanning {ticker_clean}... ({i+1}/{total})")
         
         try:
+            # 1. AMBIL DATA TEKNIKAL DULU (RINGAN)
             ticker_obj = yf.Ticker(ticker)
             df_full = ticker_obj.history(period="1y")
             
             if df_full.empty or len(df_full) < (30 + days_back): continue
             
-            # --- 1. DATA FUNDAMENTAL (DENGAN JEDA) ---
-            pbv = 0.0
-            fair_value = 0.0
-            val_status = "-"
-            
-            if check_fund and days_back == 0:
-                try:
-                    # JEDA WAKTU AGAR TIDAK DIBLOKIR YAHOO (PENTING!)
-                    time.sleep(0.3) 
-                    
-                    info = ticker_obj.info
-                    pbv = info.get('priceToBook', 0)
-                    book_val = info.get('bookValue', 0)
-                    eps = info.get('trailingEps', 0)
-                    
-                    if pbv is None: pbv = 0
-                    if book_val is None: book_val = 0
-                    if eps is None: eps = 0
-                    
-                    # Rumus Graham: Sqrt(22.5 * EPS * BVPS)
-                    if eps > 0 and book_val > 0:
-                        fair_value = np.sqrt(22.5 * eps * book_val)
-                    else:
-                        fair_value = 0
-                    
-                    current_prc = df_full['Close'].iloc[-1]
-                    if fair_value > 0:
-                        if current_prc < fair_value: val_status = "✅ MURAH"
-                        else: val_status = "⚠️ MAHAL"
-                    else:
-                        val_status = "❓ N/A" # Data tidak lengkap
-                except:
-                    val_status = "❌ ERROR"
-
             if days_back > 0:
                 df = df_full.iloc[:-days_back].copy()
             else:
@@ -188,7 +153,7 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
             signal_close = float(df['Close'].iloc[-1])
             prev_high = float(df['High'].iloc[-2])
             
-            # Volatility
+            # Filter Volatility
             df['ATR'] = df.ta.atr(length=14)
             current_atr = df['ATR'].iloc[-1]
             atr_pct = (current_atr / signal_close) * 100
@@ -197,7 +162,7 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
             vol_label = "NORMAL"
             if atr_pct > 3.0: vol_label = "⚡ HIGH"
 
-            # Indicators
+            # Filter Indicators
             df['HL2'] = (df['High'] + df['Low']) / 2
             df['Teeth_Raw'] = df.ta.sma(close='HL2', length=8)
             red_line = float(df['Teeth_Raw'].iloc[-6]) if not pd.isna(df['Teeth_Raw'].iloc[-6]) else 0
@@ -214,7 +179,7 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
             vol_spike_status = "NORMAL"
             if vol_ratio >= 2.0: vol_spike_status = "🔥 SPIKE"
 
-            # Logika Sinyal
+            # 2. TENTUKAN STATUS (BELI ATAU TIDAK)
             status = ""
             priority = 0
             
@@ -236,12 +201,47 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
                 priority = 5
                 diff = 0
 
+            # 3. AMBIL DATA FUNDAMENTAL (HANYA JIKA SINYAL BUY)
+            # Ini kuncinya: Kita tidak ambil data kalau statusnya WAIT/DOWN/EXTENDED
+            pbv = 0.0
+            fair_value = 0.0
+            val_status = "-"
+            
+            is_valid_buy = "BREAKOUT" in status or "FOLLOW" in status or "EARLY" in status
+            
+            if check_fund and days_back == 0 and is_valid_buy:
+                try:
+                    time.sleep(0.5) # Jeda aman
+                    info = ticker_obj.info
+                    
+                    pbv = info.get('priceToBook', 0)
+                    book_val = info.get('bookValue', 0)
+                    eps = info.get('trailingEps', 0)
+                    
+                    # Fallback jika None
+                    if pbv is None: pbv = 0
+                    if book_val is None: book_val = 0
+                    if eps is None: eps = 0
+                    
+                    if eps > 0 and book_val > 0:
+                        fair_value = np.sqrt(22.5 * eps * book_val)
+                    else:
+                        fair_value = 0
+                    
+                    current_prc = df_full['Close'].iloc[-1]
+                    if fair_value > 0:
+                        if current_prc < fair_value: val_status = "✅ MURAH"
+                        else: val_status = "⚠️ MAHAL"
+                    else:
+                        val_status = "⚪ N/A"
+                except:
+                    val_status = "❌ SKIP"
+
             # Backtest Calc
             performance_label = "⏳ WAIT"
             perf_val = 0
-            is_buy_signal = "BREAKOUT" in status or "FOLLOW" in status or "EARLY" in status
             
-            if days_back > 0 and is_buy_signal:
+            if days_back > 0 and is_valid_buy:
                 real_current_price = float(df_full['Close'].iloc[-1])
                 change_pct = ((real_current_price - signal_close) / signal_close) * 100
                 perf_val = change_pct
