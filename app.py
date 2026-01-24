@@ -4,9 +4,10 @@ import pandas as pd
 import pandas_ta as ta
 from datetime import datetime, timedelta
 import pytz
+import numpy as np
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V23", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System V24", layout="wide", initial_sidebar_state="expanded")
 
 # CSS: Styling
 st.markdown("""
@@ -19,15 +20,14 @@ st.markdown("""
         div[data-testid="stDataFrame"] th { text-align: center !important; background-color: #f8f9fa; color: #495057; }
         div[data-testid="stDataFrame"] td { text-align: center !important; }
         .streamlit-expanderHeader { font-weight: bold; color: #007BFF; background-color: #e9ecef; border-radius: 5px; }
-        div[data-testid="stMetricValue"] { font-size: 1.2rem !important; }
     </style>
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER ---
-st.title("📱 Noris Trading System V23")
-st.caption("Freedom Edition: Custom Watchlist • Fundamental Safety Check")
+st.title("📱 Noris Trading System V24")
+st.caption("Techno-Fundamental: Breakout Timing + Fair Value Analysis")
 
-# --- BAROMETER IHSG (LIVE) ---
+# --- BAROMETER IHSG ---
 def get_ihsg_status():
     try:
         ihsg = yf.download("^JKSE", period="3mo", progress=False)
@@ -56,16 +56,13 @@ def get_performance_history(tickers_list, days_back):
     try:
         data = yf.download(tickers_list, period="1y", progress=False)['Close']
         data_cut = data.iloc[-(days_back+1):]
-        # Handle jika cuma 1 saham (Series) vs banyak saham (DataFrame)
         if isinstance(data_cut, pd.Series):
             normalized_stocks = (data_cut / data_cut.iloc[0] - 1) * 100
             system_curve = normalized_stocks
         else:
             normalized_stocks = (data_cut / data_cut.iloc[0] - 1) * 100
             system_curve = normalized_stocks.mean(axis=1)
-            
         system_curve.name = "NORIS SYSTEM (Portfolio)"
-        
         chart_df = pd.concat([system_curve, ihsg_pct], axis=1).dropna()
         return chart_df
     except: return None
@@ -73,21 +70,21 @@ def get_performance_history(tickers_list, days_back):
 # --- EXPANDER KAMUS ---
 with st.expander("📖 KAMUS & CARA BACA (Klik Disini)"):
     st.markdown("""
-    ### 1. 🏢 Market Cap (Fundamental)
-    * **BIG CAP (>100T):** Saham Bluechip, Aman, Gerak Stabil.
-    * **MID CAP (10T - 100T):** Lapis Kedua, Cukup Aman, Potensi Cuan Besar.
-    * **SMALL CAP (<10T):** "Gorengan", Resiko Tinggi, Bisa Naik/Turun Ekstrim.
-    
-    ### 2. 🚦 Kategori Sinyal
-    * **🚀 BREAKOUT:** Harga jebol Highest High 20 Hari.
-    * **🔥 FOLLOW UP:** Harga jebol High Kemarin.
-    * **🟢 EARLY TREND:** Harga > Garis Merah (Alligator).
+    ### 1. 💎 Valuasi (Fundamental)
+    * **PBV (Price to Book):** * `< 1.0`: Murah (Undervalued).
+        * `> 3.0`: Mahal (Premium).
+    * **Fair Value (Graham):** Estimasi harga wajar saham berdasarkan Aset & Laba.
+    * **Diskon:** Jika harga saham LEBIH KECIL dari Fair Value = LAYAK INVESTASI.
+
+    ### 2. 🚦 Sinyal Teknikal
+    * **🚀 BREAKOUT:** Jebol High 20 Hari.
+    * **🔥 FOLLOW UP:** Jebol High Kemarin.
     """)
 
 # --- 3. SIDEBAR (INPUT) ---
 st.sidebar.title("⚙️ Noris Control Panel")
 
-# --- FITUR BARU: INPUT SAHAM MANUAL ---
+# INPUT SAHAM
 st.sidebar.subheader("📝 Daftar Saham")
 input_mode = st.sidebar.radio("Pilih Sumber Saham:", ["Default (Bluechip LQ45)", "Input Manual (Ketik Sendiri)"])
 
@@ -103,9 +100,14 @@ if input_mode == "Default (Bluechip LQ45)":
     tickers = default_tickers
 else:
     user_input = st.sidebar.text_area("Masukkan Kode Saham (Pisahkan koma):", value="BREN, AMMN, CUAN, GOTO, BBRI")
-    # Proses input user menjadi list format yfinance
     cleaned_input = [x.strip().upper() for x in user_input.split(',')]
     tickers = [f"{x}.JK" if not x.endswith(".JK") else x for x in cleaned_input if x]
+
+st.sidebar.divider()
+
+# OPSI FUNDAMENTAL
+st.sidebar.subheader("💎 Analisa Fundamental")
+use_fundamental = st.sidebar.checkbox("Cek Valuasi (PBV & Fair Value)", value=False, help="Centang ini untuk analisa Fundamental. PERINGATAN: Scan akan jadi lebih lambat!")
 
 st.sidebar.divider()
 st.sidebar.subheader("💰 Money Management")
@@ -122,8 +124,8 @@ min_volatility = st.sidebar.slider("Min. Volatilitas/Speed (%)", 0.0, 5.0, 0.0, 
 non_syariah_list = ["BBCA", "BBRI", "BMRI", "BBNI", "BBTN", "BDMN", "BNGA", "NISP", "GGRM", "HMSP", "WIIM", "RMBA", "MAYA", "NOBU", "ARTO"]
 
 # --- 4. ENGINE SCANNER ---
-@st.cache_data(ttl=60)
-def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vol_pct):
+@st.cache_data(ttl=300) # Cache 5 menit karena fundamental jarang berubah
+def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vol_pct, check_fund):
     results = []
     selected_tickers = []
     
@@ -139,20 +141,38 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
         text_progress.text(f"Scanning {ticker_clean}... ({i+1}/{total})")
         
         try:
-            # Mengambil Data (Termasuk Info Fundamental sederhana dari history price)
             ticker_obj = yf.Ticker(ticker)
             df_full = ticker_obj.history(period="1y")
             
-            # Coba ambil Market Cap (Bisa gagal/lambat, kita handle errornya)
-            # Cara cepat: Market Cap = Harga * Shares Outstanding. 
-            # Tapi yfinance sering lambat load 'info'. Kita pakai estimasi kasar dari harga saja tidak bisa.
-            # Kita skip fetch 'info' demi kecepatan, kecuali user minta detail.
-            # Sebagai gantinya, kita klasifikasikan berdasarkan list manual jika perlu.
-            # Di sini kita pakai placeholder atau fetch cepat jika memungkinkan.
-            # UPDATE V23: Kita skip fetch info berat. Kita fokus Technical.
-            
             if df_full.empty or len(df_full) < (30 + days_back): continue
             
+            # --- 1. DATA FUNDAMENTAL (OPSIONAL) ---
+            pbv = 0.0
+            fair_value = 0.0
+            val_status = "-"
+            
+            if check_fund and days_back == 0: # Fundamental hanya cek untuk Live Market
+                try:
+                    info = ticker_obj.info
+                    # Ambil Data
+                    pbv = info.get('priceToBook', 0)
+                    book_val = info.get('bookValue', 0)
+                    eps = info.get('trailingEps', 0)
+                    
+                    # Hitung Graham Fair Value: Sqrt(22.5 * EPS * BVPS)
+                    if eps > 0 and book_val > 0:
+                        fair_value = np.sqrt(22.5 * eps * book_val)
+                    else:
+                        fair_value = 0 # Tidak bisa dihitung jika rugi
+                    
+                    # Status Valuasi
+                    current_prc = df_full['Close'].iloc[-1]
+                    if fair_value > 0:
+                        if current_prc < fair_value: val_status = "✅ MURAH"
+                        else: val_status = "⚠️ MAHAL"
+                except:
+                    pass
+
             if days_back > 0:
                 df = df_full.iloc[:-days_back].copy()
             else:
@@ -187,7 +207,7 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
             vol_spike_status = "NORMAL"
             if vol_ratio >= 2.0: vol_spike_status = "🔥 SPIKE"
 
-            # Logika Full Spectrum
+            # Logika Sinyal
             status = ""
             priority = 0
             
@@ -238,12 +258,10 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
             
             take_profit = int(signal_close + (risk_per_share * 1.5))
             
-            results.append({
+            result_row = {
                 "Emiten": ticker_clean,
                 "Jenis": label_syariah,
                 "Status": status,
-                "Speed": f"{atr_pct:.1f}%",
-                "Vol Spike": vol_spike_status,
                 "Buy": int(signal_close),
                 "LastPrice": int(real_current_price) if days_back > 0 else 0,
                 "Hasil": performance_label,
@@ -255,7 +273,15 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
                 "Priority": priority,
                 "PerfVal": perf_val,
                 "VolRatio": vol_ratio
-            })
+            }
+            
+            # Tambah Data Fundamental jika Checkbox aktif
+            if check_fund and days_back == 0:
+                result_row["PBV"] = round(pbv, 2)
+                result_row["FairVal"] = int(fair_value)
+                result_row["Valuasi"] = val_status
+
+            results.append(result_row)
 
         except: continue
         bar_progress.progress((i + 1) / total)
@@ -283,7 +309,7 @@ if st.button(btn_txt):
     else: st.success(f"📅 **LIVE:** {tgl_skrg.strftime('%d %B %Y')}")
 
     with st.spinner('Menganalisa Portofolio...'):
-        df, sel_tickers = scan_market(tickers, min_trans, risk_tol, backtest_days, modal_juta, risk_per_trade_pct, min_volatility)
+        df, sel_tickers = scan_market(tickers, min_trans, risk_tol, backtest_days, modal_juta, risk_per_trade_pct, min_volatility, use_fundamental)
         
         if not df.empty:
             df_buy = df[df['Status'].str.contains("BREAKOUT|FOLLOW|EARLY")]
@@ -324,6 +350,8 @@ if st.button(btn_txt):
                     
                 else:
                     st.subheader("🔥 REKOMENDASI SAHAM HARI INI")
+                    
+                    # Konfigurasi Kolom Default
                     column_config = {
                         "Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka"),
                         "Buy": st.column_config.NumberColumn("Harga Buy", format="Rp %d"),
@@ -332,17 +360,30 @@ if st.button(btn_txt):
                         "Max Lot": st.column_config.NumberColumn("Max Lot", format="%d Lot"),
                         "Risk%": st.column_config.NumberColumn("Risk", format="%.1f %%"),
                     }
-                    final_df = df_buy.drop(columns=['Priority', 'PerfVal', 'VolRatio', 'LastPrice'])
+                    
+                    # Kolom yang ditampilkan
+                    cols_to_show = ['No', 'Emiten', 'Status', 'Buy', 'Max Lot', 'SL', 'TP', 'Risk%', 'Chart']
+                    
+                    # Jika Cek Fundamental Aktif, tambah kolomnya
+                    if use_fundamental:
+                        column_config["FairVal"] = st.column_config.NumberColumn("Harga Wajar", format="Rp %d")
+                        column_config["PBV"] = st.column_config.NumberColumn("PBV", format="%.2fx")
+                        cols_to_show = ['No', 'Emiten', 'Valuasi', 'Status', 'Buy', 'FairVal', 'PBV', 'Max Lot', 'SL', 'TP', 'Risk%', 'Chart']
+                    
+                    final_df = df_buy[cols_to_show]
 
                 styled_df = (final_df.style
                     .set_properties(**{'text-align': 'center'}) 
                     .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
-                    .applymap(lambda x: 'background-color: #d4edda; color: green; font-weight: bold;' if '+' in str(x) else ('background-color: #f8d7da; color: red; font-weight: bold;' if '🔻' in str(x) else ''), subset=['Hasil'])
+                    .applymap(lambda x: 'background-color: #d4edda; color: green; font-weight: bold;' if '+' in str(x) else ('background-color: #f8d7da; color: red; font-weight: bold;' if '🔻' in str(x) else ''), subset=['Hasil'] if 'Hasil' in final_df.columns else [])
                 )
                 
                 if backtest_days == 0:
                     styled_df = styled_df.applymap(lambda x: 'background-color: #cce5ff; color: #004085; font-weight: bold;', subset=['Max Lot'])
                     styled_df = styled_df.applymap(lambda x: 'color: red; font-weight: bold;', subset=['SL'])
+                    
+                    if use_fundamental:
+                         styled_df = styled_df.applymap(lambda x: 'color: green; font-weight: bold;' if 'MURAH' in str(x) else 'color: red;', subset=['Valuasi'])
 
                 st.dataframe(styled_df, column_config=column_config, use_container_width=True, hide_index=True)
             else: st.info(f"Tidak ada sinyal Buy.")
