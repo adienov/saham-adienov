@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import pytz
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V21", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System V22", layout="wide", initial_sidebar_state="expanded")
 
 # CSS: Styling
 st.markdown("""
@@ -24,8 +24,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER ---
-st.title("📱 Noris Trading System V21")
-st.caption("Audit Mode: Historical Performance Verification")
+st.title("📱 Noris Trading System V22")
+st.caption("Extended Horizon: 90-Day Backtest Capability")
 
 # --- BAROMETER IHSG (LIVE) ---
 def get_ihsg_status():
@@ -44,7 +44,8 @@ st.info(f"**STATUS IHSG:** {ihsg_stat} | {ihsg_advice}")
 # --- FUNGSI CHART HISTORY ---
 def get_performance_history(tickers_list, days_back):
     try:
-        ihsg = yf.download("^JKSE", period="3mo", progress=False)
+        # Ambil data IHSG lebih panjang (1 tahun) untuk backtest panjang
+        ihsg = yf.download("^JKSE", period="1y", progress=False)
         if isinstance(ihsg.columns, pd.MultiIndex): ihsg = ihsg.xs("^JKSE", level=1, axis=1)
         ihsg_cut = ihsg['Close'].iloc[-(days_back+1):]
         ihsg_pct = (ihsg_cut / ihsg_cut.iloc[0] - 1) * 100
@@ -54,7 +55,8 @@ def get_performance_history(tickers_list, days_back):
     if not tickers_list: return None
         
     try:
-        data = yf.download(tickers_list, period="3mo", progress=False)['Close']
+        # Ambil data saham lebih panjang (1 tahun)
+        data = yf.download(tickers_list, period="1y", progress=False)['Close']
         data_cut = data.iloc[-(days_back+1):]
         normalized_stocks = (data_cut / data_cut.iloc[0] - 1) * 100
         system_curve = normalized_stocks.mean(axis=1)
@@ -73,8 +75,8 @@ with st.expander("📖 KAMUS & CARA BACA (Klik Disini)"):
     * **🟢 EARLY TREND:** Harga > Garis Merah (Alligator).
     
     ### 2. 📊 Mode Tabel
-    * **Mode LIVE:** Menampilkan Target TP, SL, dan Lot untuk trading.
-    * **Mode BACKTEST:** Menampilkan **Harga Dulu vs Harga Sekarang** untuk cek kejujuran sistem.
+    * **Mode LIVE:** Menampilkan Target TP, SL, dan Lot.
+    * **Mode BACKTEST:** Menampilkan Audit Kinerja (Profit/Loss).
     """)
 
 # --- 3. SIDEBAR (INPUT) ---
@@ -86,7 +88,8 @@ risk_per_trade_pct = st.sidebar.slider("Resiko per Trade (%)", 0.5, 5.0, 2.0, st
 
 st.sidebar.divider()
 st.sidebar.subheader("🔍 Filter Saham")
-backtest_days = st.sidebar.slider("⏳ Mundur Hari (Backtest)", 0, 30, 0)
+# UPDATE: LIMIT BACKTEST JADI 90 HARI
+backtest_days = st.sidebar.slider("⏳ Mundur Hari (Backtest)", 0, 90, 0, help="Geser untuk melihat kinerja masa lalu (Max 3 Bulan)")
 min_trans = st.sidebar.number_input("Min. Transaksi (Miliar)", value=2.0, step=0.5)
 risk_tol = st.sidebar.slider("Toleransi Trend (%)", 1.0, 10.0, 5.0)
 min_volatility = st.sidebar.slider("Min. Volatilitas/Speed (%)", 0.0, 5.0, 0.0, step=0.5)
@@ -119,8 +122,12 @@ def scan_market(min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vo
         text_progress.text(f"Scanning {ticker_clean}... ({i+1}/{total})")
         
         try:
-            df_full = yf.download(ticker, period="6mo", progress=False)
+            # UPDATE: Data diambil 1 Tahun (1y) agar aman untuk backtest 90 hari
+            df_full = yf.download(ticker, period="1y", progress=False)
+            
+            # Pastikan data cukup (90 hari backtest + 30 hari indikator = 120 hari minimal)
             if df_full.empty or len(df_full) < (30 + days_back): continue
+            
             try:
                 if isinstance(df_full.columns, pd.MultiIndex): df_full = df_full.xs(ticker, level=1, axis=1)
             except: pass
@@ -159,7 +166,7 @@ def scan_market(min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vo
             vol_spike_status = "NORMAL"
             if vol_ratio >= 2.0: vol_spike_status = "🔥 SPIKE"
 
-            # --- LOGIKA V20 (FULL SPECTRUM) ---
+            # Logika Full Spectrum (V20 Logic)
             status = ""
             priority = 0
             
@@ -181,22 +188,17 @@ def scan_market(min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vo
                 priority = 5
                 diff = 0
 
-            # --- BACKTEST CALCULATION ---
+            # Backtest Calc
             performance_label = "⏳ WAIT"
             perf_val = 0
-            real_current_price = 0
-            
             is_buy_signal = "BREAKOUT" in status or "FOLLOW" in status or "EARLY" in status
             
             if days_back > 0 and is_buy_signal:
-                real_current_price = float(df_full['Close'].iloc[-1]) # Harga Hari Ini
+                real_current_price = float(df_full['Close'].iloc[-1])
                 change_pct = ((real_current_price - signal_close) / signal_close) * 100
                 perf_val = change_pct
-                
-                # Format Label Profit/Loss
                 if change_pct > 0: performance_label = f"✅ +{change_pct:.1f}%"
                 else: performance_label = f"🔻 {change_pct:.1f}%"
-                
                 selected_tickers.append(ticker)
 
             elif days_back == 0:
@@ -222,7 +224,7 @@ def scan_market(min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vo
                 "Speed": f"{atr_pct:.1f}%",
                 "Vol Spike": vol_spike_status,
                 "Buy": int(signal_close),
-                "LastPrice": int(real_current_price), # Harga Terkini
+                "LastPrice": int(real_current_price) if days_back > 0 else 0,
                 "Hasil": performance_label,
                 "Max Lot": max_lot,
                 "SL": stop_loss,
@@ -272,7 +274,6 @@ if st.button(btn_txt):
                     st.line_chart(chart_df, color=["#00FF00", "#FF0000"]) 
                     st.caption(f"🟢 Hijau: Noris System | 🔴 Merah: IHSG")
 
-                # Detail Statistik
                 avg_sys_return = df_buy['PerfVal'].mean()
                 ihsg_ret = chart_df['IHSG (Benchmark)'].iloc[-1] if chart_df is not None else 0
                 alpha = avg_sys_return - ihsg_ret
@@ -290,16 +291,14 @@ if st.button(btn_txt):
                 df_buy = df_buy.reset_index(drop=True)
                 df_buy.insert(0, 'No', range(1, 1 + len(df_buy)))
                 
-                # --- LOGIKA TAMPILAN KOLOM (LIVE vs BACKTEST) ---
                 if backtest_days > 0:
                     st.subheader("📋 HASIL BACKTEST (Dulu vs Sekarang)")
                     column_config = {
                         "Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka"),
                         "Buy": st.column_config.NumberColumn("Harga Signal", format="Rp %d"),
-                        "LastPrice": st.column_config.NumberColumn("Harga Terkini", format="Rp %d"), # Kolom Khusus Backtest
+                        "LastPrice": st.column_config.NumberColumn("Harga Terkini", format="Rp %d"),
                         "Hasil": st.column_config.TextColumn("Kenaikan %"),
                     }
-                    # Hanya tampilkan kolom yang diminta user
                     final_df = df_buy[['No', 'Emiten', 'Status', 'Buy', 'LastPrice', 'Hasil', 'Chart']]
                     
                 else:
@@ -314,14 +313,12 @@ if st.button(btn_txt):
                     }
                     final_df = df_buy.drop(columns=['Priority', 'PerfVal', 'VolRatio', 'LastPrice'])
 
-                # Styling
                 styled_df = (final_df.style
                     .set_properties(**{'text-align': 'center'}) 
                     .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
                     .applymap(lambda x: 'background-color: #d4edda; color: green; font-weight: bold;' if '+' in str(x) else ('background-color: #f8d7da; color: red; font-weight: bold;' if '🔻' in str(x) else ''), subset=['Hasil'])
                 )
                 
-                # Tambahkan styling Max Lot hanya jika Mode LIVE
                 if backtest_days == 0:
                     styled_df = styled_df.applymap(lambda x: 'background-color: #cce5ff; color: #004085; font-weight: bold;', subset=['Max Lot'])
                     styled_df = styled_df.applymap(lambda x: 'color: red; font-weight: bold;', subset=['SL'])
