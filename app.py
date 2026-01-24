@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import pytz
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Adienov Pro V10", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Noris Trading System", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
     <style>
@@ -22,33 +22,28 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER & INPUT ---
-st.title("📱 Adienov Pro: V10")
-st.caption("Performance Audit • Smart Money • IHSG Barometer")
+st.title("📱 Adienov Pro: V11")
+st.caption("Alpha Hunter • System vs IHSG • Performance Audit")
 
-# --- BAROMETER IHSG ---
+# --- BAROMETER IHSG (LIVE STATUS) ---
 def get_ihsg_status():
     try:
         ihsg = yf.download("^JKSE", period="3mo", progress=False)
         if isinstance(ihsg.columns, pd.MultiIndex): ihsg = ihsg.xs("^JKSE", level=1, axis=1)
         
         current_price = ihsg['Close'].iloc[-1]
-        prev_price = ihsg['Close'].iloc[-2]
-        change_pct = ((current_price - prev_price) / prev_price) * 100
         ma20 = ihsg['Close'].rolling(window=20).mean().iloc[-1]
         
         if current_price > ma20:
-            return current_price, change_pct, "🟢 BULLISH", "Market Aman.", "normal"
+            return "🟢 BULLISH", "Market Aman.", "normal"
         else:
-            return current_price, change_pct, "🔴 BEARISH", "Hati-hati!", "inverse"
+            return "🔴 BEARISH", "Hati-hati!", "inverse"
     except:
-        return 0, 0, "OFFLINE", "No Data", "off"
+        return "OFFLINE", "No Data", "off"
 
-ihsg_price, ihsg_chg, ihsg_stat, ihsg_advice, ihsg_col = get_ihsg_status()
-c1, c2 = st.columns([1, 2])
-with c1: st.metric("IHSG", f"{ihsg_price:.0f}", f"{ihsg_chg:.2f}%", delta_color=ihsg_col)
-with c2: st.info(f"**{ihsg_stat}** | {ihsg_advice}")
+ihsg_stat, ihsg_advice, ihsg_col = get_ihsg_status()
+st.info(f"**STATUS IHSG HARI INI:** {ihsg_stat} | {ihsg_advice}")
 
-st.divider()
 st.info("⚙️ **SETTING:** Klik panah **( > )** di kiri atas.")
 
 with st.sidebar:
@@ -181,7 +176,6 @@ def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio, days_back):
     
     df_res = pd.DataFrame(results)
     if not df_res.empty:
-        # Sortir: Prioritaskan PROFIT BESAR di Backtest
         if days_back > 0:
             df_res = df_res.sort_values(by=["PerfVal"], ascending=False)
         else:
@@ -189,7 +183,22 @@ def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio, days_back):
             
     return df_res
 
-# --- 5. TAMPILAN UTAMA ---
+# --- 5. FUNGSI CEK RETURN IHSG ---
+def get_ihsg_return(days_back):
+    try:
+        ihsg = yf.download("^JKSE", period="3mo", progress=False)
+        if isinstance(ihsg.columns, pd.MultiIndex): ihsg = ihsg.xs("^JKSE", level=1, axis=1)
+        
+        # Ambil harga hari ini vs harga X hari lalu
+        price_now = ihsg['Close'].iloc[-1]
+        price_then = ihsg['Close'].iloc[-(days_back + 1)] # Estimasi hari bursa
+        
+        ret_ihsg = ((price_now - price_then) / price_then) * 100
+        return ret_ihsg
+    except:
+        return 0.0
+
+# --- 6. TAMPILAN UTAMA ---
 btn_label = "🔍 SCAN HARI INI" if st.session_state.get('days_back', 0) == 0 else f"⏮️ CEK {st.session_state.get('days_back', 0)} HARI LALU"
 if st.button(f"RUN SCANNER ({'HARI INI' if backtest_days==0 else f'MUNDUR {backtest_days} HARI'})"):
     
@@ -199,47 +208,47 @@ if st.button(f"RUN SCANNER ({'HARI INI' if backtest_days==0 else f'MUNDUR {backt
     if backtest_days > 0: st.warning(f"🕒 **BACKTEST:** Cek sinyal tgl **{tgl_sinyal.strftime('%d %B %Y')}**")
     else: st.success(f"📅 **LIVE:** Data Pasar **{tgl_skrg.strftime('%d %B %Y')}**")
 
-    with st.spinner('Menjalankan scanner...'):
+    with st.spinner('Menjalankan scanner & Analisa IHSG...'):
         df = scan_market(min_trans, risk_tol, turtle_day, rr_ratio, backtest_days)
         
         if not df.empty:
             df_buy = df[df['Status'].str.contains("BREAKOUT|EARLY")]
             
-            # --- RAPOR KINERJA (BACKTEST DASHBOARD) ---
+            # --- RAPOR KINERJA & HEAD-TO-HEAD IHSG ---
             if backtest_days > 0 and not df_buy.empty:
-                st.subheader("📊 RAPOR KINERJA (Sinyal Buy)")
+                st.subheader("🥊 HEAD-TO-HEAD: SYSTEM VS IHSG")
                 
-                # Hitung Statistik
-                total_trades = len(df_buy)
+                # 1. Hitung Return System
+                avg_sys_return = df_buy['PerfVal'].mean()
+                
+                # 2. Hitung Return IHSG
+                ihsg_ret = get_ihsg_return(backtest_days)
+                
+                # 3. Hitung Alpha (Selisih)
+                alpha = avg_sys_return - ihsg_ret
+                
+                # Tampilkan Komparasi
+                c1, c2, c3 = st.columns(3)
+                
+                c1.metric("Kinerja SYSTEM", f"{avg_sys_return:.2f}%", "Rata-rata Sinyal Buy")
+                
+                c2.metric("Kinerja IHSG", f"{ihsg_ret:.2f}%", "Benchmark Pasar")
+                
+                alpha_label = "MENGALAHKAN PASAR 🔥" if alpha > 0 else "KALAH DARI PASAR ⚠️"
+                c3.metric("ALPHA (Selisih)", f"{alpha:.2f}%", alpha_label, delta_color="normal" if alpha > 0 else "inverse")
+                
+                st.markdown("---")
+                
+                # --- STATISTIK TAMBAHAN ---
+                st.caption("📊 DETAIL PERFORMA")
                 winners = df_buy[df_buy['PerfVal'] > 0]
                 losers = df_buy[df_buy['PerfVal'] <= 0]
+                win_rate = (len(winners) / len(df_buy)) * 100
                 
-                win_count = len(winners)
-                loss_count = len(losers)
-                win_rate = (win_count / total_trades) * 100 if total_trades > 0 else 0
-                
-                avg_win = winners['PerfVal'].mean() if not winners.empty else 0
-                avg_loss = losers['PerfVal'].mean() if not losers.empty else 0
-                max_drawdown = df_buy['PerfVal'].min() if not df_buy.empty else 0
-                
-                # Rasio Reward Real (Avg Win / Avg Loss)
-                real_rr = abs(avg_win / avg_loss) if avg_loss != 0 else 0
-                
-                # Tampilkan Dashboard
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Win Rate", f"{win_rate:.0f}%", f"{win_count} Win / {loss_count} Loss")
-                m2.metric("Rata2 CUAN (Avg Win)", f"+{avg_win:.1f}%", "Target Profit", delta_color="normal")
-                m3.metric("Rata2 RUGI (Avg Loss)", f"{avg_loss:.1f}%", f"Max DD: {max_drawdown:.1f}%", delta_color="inverse")
-                
-                # Indikator Kualitas Strategi
-                if real_rr > 1.5:
-                    rr_label = "🔥 LUAR BIASA (Big Profit)"
-                elif real_rr > 1.0:
-                    rr_label = "✅ BAGUS (Profitable)"
-                else:
-                    rr_label = "⚠️ BAHAYA (Small Win, Big Loss)"
-                    
-                m4.metric("Risk:Reward Real", f"{real_rr:.1f}x", rr_label)
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Win Rate", f"{win_rate:.0f}%", f"{len(winners)} Win / {len(losers)} Loss")
+                m2.metric("Avg Win", f"+{winners['PerfVal'].mean():.1f}%" if not winners.empty else "0%", "Rata2 Cuan")
+                m3.metric("Avg Loss", f"{losers['PerfVal'].mean():.1f}%" if not losers.empty else "0%", "Rata2 Rugi")
                 st.markdown("---")
 
             # --- TABEL HASIL ---
@@ -258,9 +267,7 @@ if st.button(f"RUN SCANNER ({'HARI INI' if backtest_days==0 else f'MUNDUR {backt
                     .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
                     .background_gradient(subset=['Risk%'], cmap="Greens")
                     .applymap(lambda x: 'color: red; font-weight: bold;', subset=['SL'])
-                    # Warna Volume Spike
                     .applymap(lambda x: 'background-color: #ffcccc; color: red; font-weight: bold;' if 'SPIKE' in str(x) else ('background-color: #fff3cd; color: orange; font-weight: bold;' if 'HIGH' in str(x) else ''), subset=['Vol Spike'])
-                    # Warna Hasil Backtest (Hijau Tebal untuk Cuan Besar, Merah Tebal untuk Rugi Besar)
                     .applymap(lambda x: 'background-color: #d4edda; color: green; font-weight: bold;' if '+' in str(x) else ('background-color: #f8d7da; color: red; font-weight: bold;' if '🔻' in str(x) else ''), subset=['Hasil'])
                 )
                 st.dataframe(styled_df, column_config=column_config, use_container_width=True, hide_index=True)
