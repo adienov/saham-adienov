@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import pytz
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="NORIS TRADING SYSTEM", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
     <style>
@@ -18,11 +18,13 @@ st.markdown("""
         th { text-align: center !important; }
         div[data-testid="stMetricValue"] { font-size: 1.1rem !important; }
         div[data-testid="stMetricLabel"] { font-size: 0.8rem !important; }
+        /* Style untuk Expander */
+        .streamlit-expanderHeader { font-weight: bold; color: #007BFF; background-color: #F0F2F6; border-radius: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER & INPUT ---
-st.title("📱 Noris Trading System")
+st.title("📱 NORIS TRADING SYSTEM")
 st.caption("Alpha Hunter • System vs IHSG • Performance Audit")
 
 # --- BAROMETER IHSG (LIVE STATUS) ---
@@ -43,6 +45,26 @@ def get_ihsg_status():
 
 ihsg_stat, ihsg_advice, ihsg_col = get_ihsg_status()
 st.info(f"**STATUS IHSG HARI INI:** {ihsg_stat} | {ihsg_advice}")
+
+# --- FITUR BARU: KAMUS ISTILAH (EXPANDER) ---
+with st.expander("📖 KAMUS & CARA BACA (Klik untuk Membuka/Tutup)"):
+    st.markdown("""
+    ### 1. 🚦 Status & Sinyal
+    * **🚀 BREAKOUT:** Harga menembus titik tertinggi 20 hari. Momentum sangat kuat.
+    * **🟢 EARLY TREND:** Awal tren naik (Indikator Alligator). Lebih santai/aman.
+    * **🔥 SPIKE:** Volume beli meledak **> 2x lipat** rata-rata. Indikasi **Bandar Masuk**.
+    * **⚡ HIGH:** Volume beli naik **> 1.5x lipat**. Cukup bagus.
+
+    ### 2. 🛡️ Manajemen Resiko
+    * **SL (Stop Loss):** Batas jual rugi (Garis Merah/Support) untuk amankan modal.
+    * **TP (Take Profit):** Target jual untung (Otomatis hitung rasio 1:1.5).
+    * **Jarak (%):** Resiko per trade. **Cari yang < 3%** agar resiko rendah.
+    
+    ### 3. 📊 Istilah Lain
+    * **✅ SYARIAH:** Masuk Daftar Efek Syariah (DES).
+    * **⛔ NON:** Saham Konvensional/Non-Syariah.
+    * **WIN / LOSS:** (Hanya muncul saat Backtest) Status kemenangan sinyal masa lalu.
+    """)
 
 st.info("⚙️ **SETTING:** Klik panah **( > )** di kiri atas.")
 
@@ -188,11 +210,8 @@ def get_ihsg_return(days_back):
     try:
         ihsg = yf.download("^JKSE", period="3mo", progress=False)
         if isinstance(ihsg.columns, pd.MultiIndex): ihsg = ihsg.xs("^JKSE", level=1, axis=1)
-        
-        # Ambil harga hari ini vs harga X hari lalu
         price_now = ihsg['Close'].iloc[-1]
-        price_then = ihsg['Close'].iloc[-(days_back + 1)] # Estimasi hari bursa
-        
+        price_then = ihsg['Close'].iloc[-(days_back + 1)] 
         ret_ihsg = ((price_now - price_then) / price_then) * 100
         return ret_ihsg
     except:
@@ -217,29 +236,18 @@ if st.button(f"RUN SCANNER ({'HARI INI' if backtest_days==0 else f'MUNDUR {backt
             # --- RAPOR KINERJA & HEAD-TO-HEAD IHSG ---
             if backtest_days > 0 and not df_buy.empty:
                 st.subheader("🥊 HEAD-TO-HEAD: SYSTEM VS IHSG")
-                
-                # 1. Hitung Return System
                 avg_sys_return = df_buy['PerfVal'].mean()
-                
-                # 2. Hitung Return IHSG
                 ihsg_ret = get_ihsg_return(backtest_days)
-                
-                # 3. Hitung Alpha (Selisih)
                 alpha = avg_sys_return - ihsg_ret
                 
-                # Tampilkan Komparasi
                 c1, c2, c3 = st.columns(3)
-                
                 c1.metric("Kinerja SYSTEM", f"{avg_sys_return:.2f}%", "Rata-rata Sinyal Buy")
-                
                 c2.metric("Kinerja IHSG", f"{ihsg_ret:.2f}%", "Benchmark Pasar")
-                
                 alpha_label = "MENGALAHKAN PASAR 🔥" if alpha > 0 else "KALAH DARI PASAR ⚠️"
                 c3.metric("ALPHA (Selisih)", f"{alpha:.2f}%", alpha_label, delta_color="normal" if alpha > 0 else "inverse")
                 
                 st.markdown("---")
                 
-                # --- STATISTIK TAMBAHAN ---
                 st.caption("📊 DETAIL PERFORMA")
                 winners = df_buy[df_buy['PerfVal'] > 0]
                 losers = df_buy[df_buy['PerfVal'] <= 0]
