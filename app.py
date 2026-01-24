@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import pytz
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V17", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System V18", layout="wide", initial_sidebar_state="expanded")
 
 # CSS: Styling
 st.markdown("""
@@ -19,14 +19,13 @@ st.markdown("""
         div[data-testid="stDataFrame"] th { text-align: center !important; background-color: #f8f9fa; color: #495057; }
         div[data-testid="stDataFrame"] td { text-align: center !important; }
         .streamlit-expanderHeader { font-weight: bold; color: #007BFF; background-color: #e9ecef; border-radius: 5px; }
-        /* Box Metric */
         div[data-testid="stMetricValue"] { font-size: 1.2rem !important; }
     </style>
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER ---
-st.title("📱 Noris Trading System V17")
-st.caption("Performance Audit: System vs IHSG • Money Management • Anti-Sluggish")
+st.title("📱 Noris Trading System V18")
+st.caption("Universal Access: No Volatility Barrier • Performance Audit")
 
 # --- BAROMETER IHSG (LIVE) ---
 def get_ihsg_status():
@@ -42,13 +41,12 @@ def get_ihsg_status():
 ihsg_stat, ihsg_advice, ihsg_col = get_ihsg_status()
 st.info(f"**STATUS IHSG:** {ihsg_stat} | {ihsg_advice}")
 
-# --- FUNGSI RETURN IHSG (UNTUK BACKTEST) ---
+# --- FUNGSI RETURN IHSG ---
 def get_ihsg_return(days_back):
     try:
         ihsg = yf.download("^JKSE", period="3mo", progress=False)
         if isinstance(ihsg.columns, pd.MultiIndex): ihsg = ihsg.xs("^JKSE", level=1, axis=1)
         price_now = ihsg['Close'].iloc[-1]
-        # Estimasi index hari bursa (jika libur ambil sebelumnya)
         idx_back = -(days_back + 1)
         if abs(idx_back) > len(ihsg): idx_back = 0
         price_then = ihsg['Close'].iloc[idx_back] 
@@ -62,12 +60,11 @@ with st.expander("📖 KAMUS & CARA BACA (Klik Disini)"):
     ### 1. 🚦 Sinyal Noris
     * **🚀 BREAKOUT:** Harga jebol atap tertinggi 20 hari.
     * **🔥 FOLLOW UP:** Harga jebol High Candle Kemarin.
-    * **⚡ HIGH SPEED:** Saham agresif (ATR > 3%).
     
-    ### 2. 📊 Rapor Kinerja (Backtest)
-    * **ALPHA:** Selisih keuntungan System vs IHSG.
-    * **Positif (+):** System mengalahkan pasar.
-    * **Negatif (-):** System kalah dari pasar.
+    ### 2. ⚡ Speed (Kecepatan)
+    * **NORMAL:** Gerakan standar (Aman).
+    * **HIGH:** Agresif (>3%). Hati-hati.
+    * **SLOW:** Pelan (<1%). Cocok untuk santai.
     """)
 
 # --- 3. SIDEBAR (INPUT) ---
@@ -82,7 +79,9 @@ st.sidebar.subheader("🔍 Filter Saham")
 backtest_days = st.sidebar.slider("⏳ Mundur Hari (Backtest)", 0, 30, 0)
 min_trans = st.sidebar.number_input("Min. Transaksi (Miliar)", value=2.0, step=0.5)
 risk_tol = st.sidebar.slider("Toleransi Trend (%)", 1.0, 10.0, 5.0)
-min_volatility = st.sidebar.slider("Min. Volatilitas/Speed (%)", 0.5, 5.0, 1.5, step=0.5)
+
+# FIX: DEFAULT DI-NOL-KAN AGAR SEMUA ORANG BISA PAKAI
+min_volatility = st.sidebar.slider("Min. Volatilitas/Speed (%)", 0.0, 5.0, 0.0, step=0.5, help="0 = Tampilkan Semua (Tidak ada filter speed)")
 
 # --- DATABASE SAHAM ---
 tickers = [
@@ -124,14 +123,17 @@ def scan_market(min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vo
             signal_close = float(df['Close'].iloc[-1])
             prev_high = float(df['High'].iloc[-2])
             
-            # 1. FILTER VOLATILITAS
+            # 1. INFO VOLATILITAS (TIDAK LAGI WAJIB FILTER)
             df['ATR'] = df.ta.atr(length=14)
             current_atr = df['ATR'].iloc[-1]
             atr_pct = (current_atr / signal_close) * 100
+            
+            # Hanya filter jika user menaikkan slider > 0
             if atr_pct < min_vol_pct: continue
             
             vol_label = "NORMAL"
             if atr_pct > 3.0: vol_label = "⚡ HIGH"
+            elif atr_pct < 1.0: vol_label = "🐌 SLOW"
 
             # 2. INDIKATOR TREND
             df['HL2'] = (df['High'] + df['Low']) / 2
@@ -245,20 +247,14 @@ if st.button(btn_txt):
         if not df.empty:
             df_buy = df[df['Status'].str.contains("BREAKOUT|FOLLOW")]
             
-            # --- RAPOR KINERJA & HEAD-TO-HEAD (KEMBALI HADIR!) ---
+            # --- RAPOR KINERJA & HEAD-TO-HEAD ---
             if backtest_days > 0 and not df_buy.empty:
                 st.subheader("🥊 HEAD-TO-HEAD: SYSTEM VS IHSG")
                 
-                # 1. Hitung Return System
                 avg_sys_return = df_buy['PerfVal'].mean()
-                
-                # 2. Hitung Return IHSG
                 ihsg_ret = get_ihsg_return(backtest_days)
-                
-                # 3. Hitung Alpha
                 alpha = avg_sys_return - ihsg_ret
                 
-                # Tampilkan
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Kinerja NORIS SYSTEM", f"{avg_sys_return:.2f}%", "Rata-rata Sinyal Buy")
                 c2.metric("Kinerja IHSG", f"{ihsg_ret:.2f}%", "Benchmark Pasar")
@@ -279,7 +275,7 @@ if st.button(btn_txt):
                     "TP": st.column_config.NumberColumn("TP", format="Rp %d"),
                     "Max Lot": st.column_config.NumberColumn("Max Lot", format="%d Lot"),
                     "Risk%": st.column_config.NumberColumn("Jarak", format="%.1f %%"),
-                    "Speed": st.column_config.TextColumn("Speed", help="ATR% > 3% = Agresif"),
+                    "Speed": st.column_config.TextColumn("Speed", help="0-5%. Makin tinggi makin liar."),
                 }
                 
                 styled_df = (df_buy.drop(columns=['Priority', 'PerfVal', 'VolRatio']).style
@@ -293,5 +289,5 @@ if st.button(btn_txt):
                     .applymap(lambda x: 'background-color: #cce5ff; color: #004085; font-weight: bold;', subset=['Max Lot'])
                 )
                 st.dataframe(styled_df, column_config=column_config, use_container_width=True, hide_index=True)
-            else: st.info(f"Tidak ada sinyal Buy yang memenuhi kriteria.")
+            else: st.info(f"Tidak ada sinyal Buy. (Coba kurangi filter Transaksi/Trend jika pasar sepi)")
         else: st.error("Data tidak ditemukan.")
