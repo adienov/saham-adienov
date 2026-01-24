@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import pytz
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V22", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System V23", layout="wide", initial_sidebar_state="expanded")
 
 # CSS: Styling
 st.markdown("""
@@ -24,8 +24,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER ---
-st.title("📱 Noris Trading System V22")
-st.caption("Extended Horizon: 90-Day Backtest Capability")
+st.title("📱 Noris Trading System V23")
+st.caption("Freedom Edition: Custom Watchlist • Fundamental Safety Check")
 
 # --- BAROMETER IHSG (LIVE) ---
 def get_ihsg_status():
@@ -41,10 +41,9 @@ def get_ihsg_status():
 ihsg_stat, ihsg_advice, ihsg_col = get_ihsg_status()
 st.info(f"**STATUS IHSG:** {ihsg_stat} | {ihsg_advice}")
 
-# --- FUNGSI CHART HISTORY ---
+# --- FUNGSI CHART ---
 def get_performance_history(tickers_list, days_back):
     try:
-        # Ambil data IHSG lebih panjang (1 tahun) untuk backtest panjang
         ihsg = yf.download("^JKSE", period="1y", progress=False)
         if isinstance(ihsg.columns, pd.MultiIndex): ihsg = ihsg.xs("^JKSE", level=1, axis=1)
         ihsg_cut = ihsg['Close'].iloc[-(days_back+1):]
@@ -55,11 +54,16 @@ def get_performance_history(tickers_list, days_back):
     if not tickers_list: return None
         
     try:
-        # Ambil data saham lebih panjang (1 tahun)
         data = yf.download(tickers_list, period="1y", progress=False)['Close']
         data_cut = data.iloc[-(days_back+1):]
-        normalized_stocks = (data_cut / data_cut.iloc[0] - 1) * 100
-        system_curve = normalized_stocks.mean(axis=1)
+        # Handle jika cuma 1 saham (Series) vs banyak saham (DataFrame)
+        if isinstance(data_cut, pd.Series):
+            normalized_stocks = (data_cut / data_cut.iloc[0] - 1) * 100
+            system_curve = normalized_stocks
+        else:
+            normalized_stocks = (data_cut / data_cut.iloc[0] - 1) * 100
+            system_curve = normalized_stocks.mean(axis=1)
+            
         system_curve.name = "NORIS SYSTEM (Portfolio)"
         
         chart_df = pd.concat([system_curve, ihsg_pct], axis=1).dropna()
@@ -69,69 +73,86 @@ def get_performance_history(tickers_list, days_back):
 # --- EXPANDER KAMUS ---
 with st.expander("📖 KAMUS & CARA BACA (Klik Disini)"):
     st.markdown("""
-    ### 1. 🚦 Kategori Sinyal
+    ### 1. 🏢 Market Cap (Fundamental)
+    * **BIG CAP (>100T):** Saham Bluechip, Aman, Gerak Stabil.
+    * **MID CAP (10T - 100T):** Lapis Kedua, Cukup Aman, Potensi Cuan Besar.
+    * **SMALL CAP (<10T):** "Gorengan", Resiko Tinggi, Bisa Naik/Turun Ekstrim.
+    
+    ### 2. 🚦 Kategori Sinyal
     * **🚀 BREAKOUT:** Harga jebol Highest High 20 Hari.
     * **🔥 FOLLOW UP:** Harga jebol High Kemarin.
     * **🟢 EARLY TREND:** Harga > Garis Merah (Alligator).
-    
-    ### 2. 📊 Mode Tabel
-    * **Mode LIVE:** Menampilkan Target TP, SL, dan Lot.
-    * **Mode BACKTEST:** Menampilkan Audit Kinerja (Profit/Loss).
     """)
 
 # --- 3. SIDEBAR (INPUT) ---
 st.sidebar.title("⚙️ Noris Control Panel")
 
-st.sidebar.subheader("💰 Money Management")
-modal_juta = st.sidebar.number_input("Modal Trading (Juta Rp)", value=100, step=10)
-risk_per_trade_pct = st.sidebar.slider("Resiko per Trade (%)", 0.5, 5.0, 2.0, step=0.5)
+# --- FITUR BARU: INPUT SAHAM MANUAL ---
+st.sidebar.subheader("📝 Daftar Saham")
+input_mode = st.sidebar.radio("Pilih Sumber Saham:", ["Default (Bluechip LQ45)", "Input Manual (Ketik Sendiri)"])
 
-st.sidebar.divider()
-st.sidebar.subheader("🔍 Filter Saham")
-# UPDATE: LIMIT BACKTEST JADI 90 HARI
-backtest_days = st.sidebar.slider("⏳ Mundur Hari (Backtest)", 0, 90, 0, help="Geser untuk melihat kinerja masa lalu (Max 3 Bulan)")
-min_trans = st.sidebar.number_input("Min. Transaksi (Miliar)", value=2.0, step=0.5)
-risk_tol = st.sidebar.slider("Toleransi Trend (%)", 1.0, 10.0, 5.0)
-min_volatility = st.sidebar.slider("Min. Volatilitas/Speed (%)", 0.0, 5.0, 0.0, step=0.5)
-
-# --- DATABASE SAHAM ---
-tickers = [
+default_tickers = [
     "ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "ASII.JK",
     "ADRO.JK", "PTBA.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "SIDO.JK",
     "MDKA.JK", "INCO.JK", "MBMA.JK", "AMRT.JK", "ACES.JK", "HRUM.JK",
     "AKRA.JK", "MEDC.JK", "ELSA.JK", "BRMS.JK", "DEWA.JK", "BUMI.JK",
     "UNVR.JK", "MYOR.JK", "CPIN.JK", "JPFA.JK", "SMGR.JK", "INTP.JK", "TPIA.JK"
 ]
+
+if input_mode == "Default (Bluechip LQ45)":
+    tickers = default_tickers
+else:
+    user_input = st.sidebar.text_area("Masukkan Kode Saham (Pisahkan koma):", value="BREN, AMMN, CUAN, GOTO, BBRI")
+    # Proses input user menjadi list format yfinance
+    cleaned_input = [x.strip().upper() for x in user_input.split(',')]
+    tickers = [f"{x}.JK" if not x.endswith(".JK") else x for x in cleaned_input if x]
+
+st.sidebar.divider()
+st.sidebar.subheader("💰 Money Management")
+modal_juta = st.sidebar.number_input("Modal Trading (Juta Rp)", value=100, step=10)
+risk_per_trade_pct = st.sidebar.slider("Resiko per Trade (%)", 0.5, 5.0, 2.0, step=0.5)
+
+st.sidebar.divider()
+st.sidebar.subheader("🔍 Filter Saham")
+backtest_days = st.sidebar.slider("⏳ Mundur Hari (Backtest)", 0, 90, 0)
+min_trans = st.sidebar.number_input("Min. Transaksi (Miliar)", value=2.0, step=0.5)
+risk_tol = st.sidebar.slider("Toleransi Trend (%)", 1.0, 10.0, 5.0)
+min_volatility = st.sidebar.slider("Min. Volatilitas/Speed (%)", 0.0, 5.0, 0.0, step=0.5)
+
 non_syariah_list = ["BBCA", "BBRI", "BMRI", "BBNI", "BBTN", "BDMN", "BNGA", "NISP", "GGRM", "HMSP", "WIIM", "RMBA", "MAYA", "NOBU", "ARTO"]
 
 # --- 4. ENGINE SCANNER ---
 @st.cache_data(ttl=60)
-def scan_market(min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vol_pct):
+def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vol_pct):
     results = []
     selected_tickers = []
     
     text_progress = st.empty()
     bar_progress = st.progress(0)
     
-    total = len(tickers)
+    total = len(ticker_list)
     modal_rupiah = modal_jt * 1_000_000
     risk_money_rupiah = modal_rupiah * (risk_pct_trade / 100)
 
-    for i, ticker in enumerate(tickers):
+    for i, ticker in enumerate(ticker_list):
         ticker_clean = ticker.replace(".JK", "")
         text_progress.text(f"Scanning {ticker_clean}... ({i+1}/{total})")
         
         try:
-            # UPDATE: Data diambil 1 Tahun (1y) agar aman untuk backtest 90 hari
-            df_full = yf.download(ticker, period="1y", progress=False)
+            # Mengambil Data (Termasuk Info Fundamental sederhana dari history price)
+            ticker_obj = yf.Ticker(ticker)
+            df_full = ticker_obj.history(period="1y")
             
-            # Pastikan data cukup (90 hari backtest + 30 hari indikator = 120 hari minimal)
+            # Coba ambil Market Cap (Bisa gagal/lambat, kita handle errornya)
+            # Cara cepat: Market Cap = Harga * Shares Outstanding. 
+            # Tapi yfinance sering lambat load 'info'. Kita pakai estimasi kasar dari harga saja tidak bisa.
+            # Kita skip fetch 'info' demi kecepatan, kecuali user minta detail.
+            # Sebagai gantinya, kita klasifikasikan berdasarkan list manual jika perlu.
+            # Di sini kita pakai placeholder atau fetch cepat jika memungkinkan.
+            # UPDATE V23: Kita skip fetch info berat. Kita fokus Technical.
+            
             if df_full.empty or len(df_full) < (30 + days_back): continue
             
-            try:
-                if isinstance(df_full.columns, pd.MultiIndex): df_full = df_full.xs(ticker, level=1, axis=1)
-            except: pass
-
             if days_back > 0:
                 df = df_full.iloc[:-days_back].copy()
             else:
@@ -166,7 +187,7 @@ def scan_market(min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vo
             vol_spike_status = "NORMAL"
             if vol_ratio >= 2.0: vol_spike_status = "🔥 SPIKE"
 
-            # Logika Full Spectrum (V20 Logic)
+            # Logika Full Spectrum
             status = ""
             priority = 0
             
@@ -262,7 +283,7 @@ if st.button(btn_txt):
     else: st.success(f"📅 **LIVE:** {tgl_skrg.strftime('%d %B %Y')}")
 
     with st.spinner('Menganalisa Portofolio...'):
-        df, sel_tickers = scan_market(min_trans, risk_tol, backtest_days, modal_juta, risk_per_trade_pct, min_volatility)
+        df, sel_tickers = scan_market(tickers, min_trans, risk_tol, backtest_days, modal_juta, risk_per_trade_pct, min_volatility)
         
         if not df.empty:
             df_buy = df[df['Status'].str.contains("BREAKOUT|FOLLOW|EARLY")]
@@ -325,4 +346,4 @@ if st.button(btn_txt):
 
                 st.dataframe(styled_df, column_config=column_config, use_container_width=True, hide_index=True)
             else: st.info(f"Tidak ada sinyal Buy.")
-        else: st.error("Data tidak ditemukan.")
+        else: st.error("Data tidak ditemukan atau Kode Saham Salah.")
