@@ -5,9 +5,10 @@ import pandas_ta as ta
 from datetime import datetime, timedelta
 import pytz
 import numpy as np
+import time # Import Time untuk Jeda
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V24", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System V25", layout="wide", initial_sidebar_state="expanded")
 
 # CSS: Styling
 st.markdown("""
@@ -24,8 +25,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER ---
-st.title("📱 Noris Trading System V24")
-st.caption("Techno-Fundamental: Breakout Timing + Fair Value Analysis")
+st.title("📱 Noris Trading System V25")
+st.caption("Fix Update: Fundamental Data Fetcher (Anti-0)")
 
 # --- BAROMETER IHSG ---
 def get_ihsg_status():
@@ -71,9 +72,10 @@ def get_performance_history(tickers_list, days_back):
 with st.expander("📖 KAMUS & CARA BACA (Klik Disini)"):
     st.markdown("""
     ### 1. 💎 Valuasi (Fundamental)
-    * **PBV (Price to Book):** * `< 1.0`: Murah (Undervalued).
+    * **PBV (Price to Book):**
+        * `< 1.0`: Murah (Undervalued).
         * `> 3.0`: Mahal (Premium).
-    * **Fair Value (Graham):** Estimasi harga wajar saham berdasarkan Aset & Laba.
+    * **Fair Value (Graham):** Harga wajar berdasarkan Aset & Laba.
     * **Diskon:** Jika harga saham LEBIH KECIL dari Fair Value = LAYAK INVESTASI.
 
     ### 2. 🚦 Sinyal Teknikal
@@ -84,7 +86,6 @@ with st.expander("📖 KAMUS & CARA BACA (Klik Disini)"):
 # --- 3. SIDEBAR (INPUT) ---
 st.sidebar.title("⚙️ Noris Control Panel")
 
-# INPUT SAHAM
 st.sidebar.subheader("📝 Daftar Saham")
 input_mode = st.sidebar.radio("Pilih Sumber Saham:", ["Default (Bluechip LQ45)", "Input Manual (Ketik Sendiri)"])
 
@@ -105,9 +106,8 @@ else:
 
 st.sidebar.divider()
 
-# OPSI FUNDAMENTAL
 st.sidebar.subheader("💎 Analisa Fundamental")
-use_fundamental = st.sidebar.checkbox("Cek Valuasi (PBV & Fair Value)", value=False, help="Centang ini untuk analisa Fundamental. PERINGATAN: Scan akan jadi lebih lambat!")
+use_fundamental = st.sidebar.checkbox("Cek Valuasi (PBV & Fair Value)", value=False, help="PERINGATAN: Scan akan jadi LEBIH LAMBAT karena harus antri data.")
 
 st.sidebar.divider()
 st.sidebar.subheader("💰 Money Management")
@@ -124,7 +124,7 @@ min_volatility = st.sidebar.slider("Min. Volatilitas/Speed (%)", 0.0, 5.0, 0.0, 
 non_syariah_list = ["BBCA", "BBRI", "BMRI", "BBNI", "BBTN", "BDMN", "BNGA", "NISP", "GGRM", "HMSP", "WIIM", "RMBA", "MAYA", "NOBU", "ARTO"]
 
 # --- 4. ENGINE SCANNER ---
-@st.cache_data(ttl=300) # Cache 5 menit karena fundamental jarang berubah
+@st.cache_data(ttl=300) 
 def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vol_pct, check_fund):
     results = []
     selected_tickers = []
@@ -146,32 +146,39 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
             
             if df_full.empty or len(df_full) < (30 + days_back): continue
             
-            # --- 1. DATA FUNDAMENTAL (OPSIONAL) ---
+            # --- 1. DATA FUNDAMENTAL (DENGAN JEDA) ---
             pbv = 0.0
             fair_value = 0.0
             val_status = "-"
             
-            if check_fund and days_back == 0: # Fundamental hanya cek untuk Live Market
+            if check_fund and days_back == 0:
                 try:
+                    # JEDA WAKTU AGAR TIDAK DIBLOKIR YAHOO (PENTING!)
+                    time.sleep(0.3) 
+                    
                     info = ticker_obj.info
-                    # Ambil Data
                     pbv = info.get('priceToBook', 0)
                     book_val = info.get('bookValue', 0)
                     eps = info.get('trailingEps', 0)
                     
-                    # Hitung Graham Fair Value: Sqrt(22.5 * EPS * BVPS)
+                    if pbv is None: pbv = 0
+                    if book_val is None: book_val = 0
+                    if eps is None: eps = 0
+                    
+                    # Rumus Graham: Sqrt(22.5 * EPS * BVPS)
                     if eps > 0 and book_val > 0:
                         fair_value = np.sqrt(22.5 * eps * book_val)
                     else:
-                        fair_value = 0 # Tidak bisa dihitung jika rugi
+                        fair_value = 0
                     
-                    # Status Valuasi
                     current_prc = df_full['Close'].iloc[-1]
                     if fair_value > 0:
                         if current_prc < fair_value: val_status = "✅ MURAH"
                         else: val_status = "⚠️ MAHAL"
+                    else:
+                        val_status = "❓ N/A" # Data tidak lengkap
                 except:
-                    pass
+                    val_status = "❌ ERROR"
 
             if days_back > 0:
                 df = df_full.iloc[:-days_back].copy()
@@ -275,8 +282,7 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
                 "VolRatio": vol_ratio
             }
             
-            # Tambah Data Fundamental jika Checkbox aktif
-            if check_fund and days_back == 0:
+            if use_fundamental and days_back == 0:
                 result_row["PBV"] = round(pbv, 2)
                 result_row["FairVal"] = int(fair_value)
                 result_row["Valuasi"] = val_status
@@ -350,8 +356,6 @@ if st.button(btn_txt):
                     
                 else:
                     st.subheader("🔥 REKOMENDASI SAHAM HARI INI")
-                    
-                    # Konfigurasi Kolom Default
                     column_config = {
                         "Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka"),
                         "Buy": st.column_config.NumberColumn("Harga Buy", format="Rp %d"),
@@ -360,11 +364,8 @@ if st.button(btn_txt):
                         "Max Lot": st.column_config.NumberColumn("Max Lot", format="%d Lot"),
                         "Risk%": st.column_config.NumberColumn("Risk", format="%.1f %%"),
                     }
-                    
-                    # Kolom yang ditampilkan
                     cols_to_show = ['No', 'Emiten', 'Status', 'Buy', 'Max Lot', 'SL', 'TP', 'Risk%', 'Chart']
                     
-                    # Jika Cek Fundamental Aktif, tambah kolomnya
                     if use_fundamental:
                         column_config["FairVal"] = st.column_config.NumberColumn("Harga Wajar", format="Rp %d")
                         column_config["PBV"] = st.column_config.NumberColumn("PBV", format="%.2fx")
