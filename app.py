@@ -4,10 +4,14 @@ import pandas as pd
 import pandas_ta as ta
 from datetime import datetime, timedelta
 import pytz
-import numpy as np
+import io
 
-# --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V27", layout="wide", initial_sidebar_state="expanded")
+# --- 1. SETTING HALAMAN & SESSION STATE ---
+st.set_page_config(page_title="Noris Trading System V28", layout="wide", initial_sidebar_state="expanded")
+
+# Inisialisasi Session State untuk Menyimpan Portfolio Sementara
+if 'portfolio' not in st.session_state:
+    st.session_state['portfolio'] = pd.DataFrame(columns=['Tanggal', 'Emiten', 'Harga Beli', 'Lot', 'Investasi'])
 
 # CSS: Styling
 st.markdown("""
@@ -24,8 +28,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER ---
-st.title("📱 Noris Trading System V27")
-st.caption("Lightspeed Edition: High Performance Technical Scanner")
+st.title("📱 Noris Trading System V28")
+st.caption("Portfolio Manager: Scan -> Save -> Track Real Performance")
 
 # --- BAROMETER IHSG ---
 def get_ihsg_status():
@@ -41,46 +45,22 @@ def get_ihsg_status():
 ihsg_stat, ihsg_advice, ihsg_col = get_ihsg_status()
 st.info(f"**STATUS IHSG:** {ihsg_stat} | {ihsg_advice}")
 
-# --- FUNGSI CHART ---
-def get_performance_history(tickers_list, days_back):
-    try:
-        ihsg = yf.download("^JKSE", period="1y", progress=False)
-        if isinstance(ihsg.columns, pd.MultiIndex): ihsg = ihsg.xs("^JKSE", level=1, axis=1)
-        ihsg_cut = ihsg['Close'].iloc[-(days_back+1):]
-        ihsg_pct = (ihsg_cut / ihsg_cut.iloc[0] - 1) * 100
-        ihsg_pct.name = "IHSG (Benchmark)"
-    except: return None
-
-    if not tickers_list: return None
-        
-    try:
-        data = yf.download(tickers_list, period="1y", progress=False)['Close']
-        data_cut = data.iloc[-(days_back+1):]
-        if isinstance(data_cut, pd.Series):
-            normalized_stocks = (data_cut / data_cut.iloc[0] - 1) * 100
-            system_curve = normalized_stocks
-        else:
-            normalized_stocks = (data_cut / data_cut.iloc[0] - 1) * 100
-            system_curve = normalized_stocks.mean(axis=1)
-        system_curve.name = "NORIS SYSTEM (Portfolio)"
-        chart_df = pd.concat([system_curve, ihsg_pct], axis=1).dropna()
-        return chart_df
-    except: return None
-
-# --- EXPANDER KAMUS ---
-with st.expander("📖 KAMUS & CARA BACA (Klik Disini)"):
-    st.markdown("""
-    ### 🚦 Sinyal Teknikal
-    * **🚀 BREAKOUT:** Harga jebol Highest High 20 Hari.
-    * **🔥 FOLLOW UP:** Harga jebol High Kemarin.
-    * **🟢 EARLY TREND:** Harga > Garis Merah (Alligator).
-    """)
-
 # --- 3. SIDEBAR (INPUT) ---
 st.sidebar.title("⚙️ Noris Control Panel")
 
+st.sidebar.subheader("📂 Manajemen Data")
+uploaded_file = st.sidebar.file_uploader("Upload Portfolio Lama (CSV)", type="csv")
+if uploaded_file is not None:
+    try:
+        df_uploaded = pd.read_csv(uploaded_file)
+        st.session_state['portfolio'] = df_uploaded
+        st.sidebar.success("Portfolio Berhasil Diload!")
+    except:
+        st.sidebar.error("File CSV rusak.")
+
+st.sidebar.divider()
 st.sidebar.subheader("📝 Daftar Saham")
-input_mode = st.sidebar.radio("Pilih Sumber Saham:", ["Default (Bluechip LQ45)", "Input Manual (Ketik Sendiri)"])
+input_mode = st.sidebar.radio("Pilih Sumber Saham:", ["Default (Bluechip LQ45)", "Input Manual"])
 
 default_tickers = [
     "ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "ASII.JK",
@@ -93,7 +73,7 @@ default_tickers = [
 if input_mode == "Default (Bluechip LQ45)":
     tickers = default_tickers
 else:
-    user_input = st.sidebar.text_area("Masukkan Kode Saham (Pisahkan koma):", value="BREN, AMMN, CUAN, GOTO, BBRI")
+    user_input = st.sidebar.text_area("Kode Saham (Pisahkan koma):", value="BREN, AMMN, CUAN, GOTO, BBRI")
     cleaned_input = [x.strip().upper() for x in user_input.split(',')]
     tickers = [f"{x}.JK" if not x.endswith(".JK") else x for x in cleaned_input if x]
 
@@ -104,46 +84,40 @@ risk_per_trade_pct = st.sidebar.slider("Resiko per Trade (%)", 0.5, 5.0, 2.0, st
 
 st.sidebar.divider()
 st.sidebar.subheader("🔍 Filter Saham")
-backtest_days = st.sidebar.slider("⏳ Mundur Hari (Backtest)", 0, 90, 0)
+backtest_days = st.sidebar.slider("⏳ Mundur Hari (Scanner)", 0, 90, 0)
 min_trans = st.sidebar.number_input("Min. Transaksi (Miliar)", value=2.0, step=0.5)
 risk_tol = st.sidebar.slider("Toleransi Trend (%)", 1.0, 10.0, 5.0)
 min_volatility = st.sidebar.slider("Min. Volatilitas/Speed (%)", 0.0, 5.0, 0.0, step=0.5)
-
 non_syariah_list = ["BBCA", "BBRI", "BMRI", "BBNI", "BBTN", "BDMN", "BNGA", "NISP", "GGRM", "HMSP", "WIIM", "RMBA", "MAYA", "NOBU", "ARTO"]
 
 # --- 4. ENGINE SCANNER ---
 @st.cache_data(ttl=60) 
 def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vol_pct):
     results = []
-    selected_tickers = []
-    
-    text_progress = st.empty()
-    bar_progress = st.progress(0)
-    
     total = len(ticker_list)
     modal_rupiah = modal_jt * 1_000_000
     risk_money_rupiah = modal_rupiah * (risk_pct_trade / 100)
+    
+    text_progress = st.empty()
+    bar_progress = st.progress(0)
 
     for i, ticker in enumerate(ticker_list):
         ticker_clean = ticker.replace(".JK", "")
         text_progress.text(f"Scanning {ticker_clean}... ({i+1}/{total})")
         
         try:
-            # 1. AMBIL DATA TEKNIKAL (TANPA FUNDAMENTAL)
             ticker_obj = yf.Ticker(ticker)
             df_full = ticker_obj.history(period="1y")
             
             if df_full.empty or len(df_full) < (30 + days_back): continue
             
-            if days_back > 0:
-                df = df_full.iloc[:-days_back].copy()
-            else:
-                df = df_full.copy()
+            if days_back > 0: df = df_full.iloc[:-days_back].copy()
+            else: df = df_full.copy()
 
             signal_close = float(df['Close'].iloc[-1])
             prev_high = float(df['High'].iloc[-2])
             
-            # Filter Volatility
+            # Volatility
             df['ATR'] = df.ta.atr(length=14)
             current_atr = df['ATR'].iloc[-1]
             atr_pct = (current_atr / signal_close) * 100
@@ -152,7 +126,7 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
             vol_label = "NORMAL"
             if atr_pct > 3.0: vol_label = "⚡ HIGH"
 
-            # Filter Indicators
+            # Indicators
             df['HL2'] = (df['High'] + df['Low']) / 2
             df['Teeth_Raw'] = df.ta.sma(close='HL2', length=8)
             red_line = float(df['Teeth_Raw'].iloc[-6]) if not pd.isna(df['Teeth_Raw'].iloc[-6]) else 0
@@ -169,7 +143,7 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
             vol_spike_status = "NORMAL"
             if vol_ratio >= 2.0: vol_spike_status = "🔥 SPIKE"
 
-            # 2. LOGIKA SINYAL
+            # Logika Sinyal
             status = ""
             priority = 0
             
@@ -191,21 +165,14 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
                 priority = 5
                 diff = 0
 
-            # 3. BACKTEST CALCULATION
+            # Backtest/Live
             performance_label = "⏳ WAIT"
-            perf_val = 0
-            is_buy_signal = "BREAKOUT" in status or "FOLLOW" in status or "EARLY" in status
-            
-            if days_back > 0 and is_buy_signal:
+            if days_back == 0: performance_label = "🆕 LIVE"
+            else:
+                # Simple backtest calc
                 real_current_price = float(df_full['Close'].iloc[-1])
-                change_pct = ((real_current_price - signal_close) / signal_close) * 100
-                perf_val = change_pct
-                if change_pct > 0: performance_label = f"✅ +{change_pct:.1f}%"
-                else: performance_label = f"🔻 {change_pct:.1f}%"
-                selected_tickers.append(ticker)
-
-            elif days_back == 0:
-                performance_label = "🆕 LIVE"
+                change = ((real_current_price - signal_close)/signal_close)*100
+                performance_label = f"{change:.1f}%"
 
             label_syariah = "⛔ NON" if ticker_clean in non_syariah_list else "✅ SYARIAH"
             stop_loss = int(red_line)
@@ -220,23 +187,20 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
             
             take_profit = int(signal_close + (risk_per_share * 1.5))
             
-            result_row = {
+            results.append({
                 "Emiten": ticker_clean,
                 "Jenis": label_syariah,
                 "Status": status,
                 "Buy": int(signal_close),
-                "LastPrice": int(real_current_price) if days_back > 0 else 0,
                 "Hasil": performance_label,
                 "Max Lot": max_lot,
                 "SL": stop_loss,
                 "TP": take_profit,
                 "Risk%": round(diff, 1),
-                "Chart": f"https://www.tradingview.com/chart/?symbol=IDX:{ticker_clean}",
                 "Priority": priority,
-                "PerfVal": perf_val,
-                "VolRatio": vol_ratio
-            }
-            results.append(result_row)
+                "VolRatio": vol_ratio,
+                "Chart": f"https://www.tradingview.com/chart/?symbol=IDX:{ticker_clean}",
+            })
 
         except: continue
         bar_progress.progress((i + 1) / total)
@@ -246,65 +210,35 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
     
     df_res = pd.DataFrame(results)
     if not df_res.empty:
-        if days_back > 0:
-            df_res = df_res.sort_values(by=["PerfVal"], ascending=False)
-        else:
-            df_res = df_res.sort_values(by=["Priority", "VolRatio"], ascending=[True, False])
+        df_res = df_res.sort_values(by=["Priority", "VolRatio"], ascending=[True, False])
             
-    return df_res, selected_tickers
+    return df_res
 
-# --- 5. TAMPILAN UTAMA ---
-btn_txt = "🔍 SCAN NORIS SYSTEM" if st.session_state.get('days_back', 0) == 0 else f"⏮️ CEK MASA LALU ({st.session_state.get('days_back', 0)} HARI)"
-if st.button(btn_txt):
-    
-    tgl_skrg = datetime.now(pytz.timezone('Asia/Jakarta'))
-    tgl_sinyal = tgl_skrg - timedelta(days=backtest_days)
-    
-    if backtest_days > 0: st.warning(f"🕒 **BACKTEST:** {tgl_sinyal.strftime('%d %B %Y')}")
-    else: st.success(f"📅 **LIVE:** {tgl_skrg.strftime('%d %B %Y')}")
+# --- 5. TAMPILAN UTAMA (TABS) ---
+tab1, tab2 = st.tabs(["📡 SCANNER (Market Hunter)", "💼 PORTOFOLIO SAYA (Forward Test)"])
 
-    with st.spinner('Menganalisa Portofolio...'):
-        df, sel_tickers = scan_market(tickers, min_trans, risk_tol, backtest_days, modal_juta, risk_per_trade_pct, min_volatility)
+with tab1:
+    btn_txt = "🔍 SCAN NORIS SYSTEM" if st.session_state.get('days_back', 0) == 0 else f"⏮️ CEK MASA LALU ({st.session_state.get('days_back', 0)} HARI)"
+    
+    if st.button(btn_txt, key="scan_btn"):
+        tgl_skrg = datetime.now(pytz.timezone('Asia/Jakarta'))
+        tgl_sinyal = tgl_skrg - timedelta(days=backtest_days)
         
-        if not df.empty:
-            df_buy = df[df['Status'].str.contains("BREAKOUT|FOLLOW|EARLY")]
-            
-            if backtest_days > 0 and not df_buy.empty:
-                st.subheader("📈 GRAFIK PERFORMA")
-                chart_df = get_performance_history(sel_tickers, backtest_days)
-                if chart_df is not None:
-                    st.line_chart(chart_df, color=["#00FF00", "#FF0000"]) 
-                    st.caption(f"🟢 Hijau: Noris System | 🔴 Merah: IHSG")
+        if backtest_days > 0: st.warning(f"🕒 **BACKTEST:** {tgl_sinyal.strftime('%d %B %Y')}")
+        else: st.success(f"📅 **LIVE:** {tgl_skrg.strftime('%d %B %Y')}")
 
-                avg_sys_return = df_buy['PerfVal'].mean()
-                ihsg_ret = chart_df['IHSG (Benchmark)'].iloc[-1] if chart_df is not None else 0
-                alpha = avg_sys_return - ihsg_ret
-                winners = df_buy[df_buy['PerfVal'] > 0]
-                win_rate = (len(winners) / len(df_buy)) * 100
-                
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Avg Profit", f"{avg_sys_return:.2f}%")
-                c2.metric("IHSG Return", f"{ihsg_ret:.2f}%")
-                c3.metric("Win Rate", f"{win_rate:.0f}%")
-                c4.metric("ALPHA", f"{alpha:.2f}%", "MENGALAHKAN PASAR 🔥" if alpha > 0 else "KALAH ⚠️")
-                st.markdown("---")
+        with st.spinner('Menganalisa Pasar...'):
+            df = scan_market(tickers, min_trans, risk_tol, backtest_days, modal_juta, risk_per_trade_pct, min_volatility)
             
-            if not df_buy.empty:
-                df_buy = df_buy.reset_index(drop=True)
-                df_buy.insert(0, 'No', range(1, 1 + len(df_buy)))
+            if not df.empty:
+                df_buy = df[df['Status'].str.contains("BREAKOUT|FOLLOW|EARLY")]
                 
-                if backtest_days > 0:
-                    st.subheader("📋 HASIL BACKTEST (Dulu vs Sekarang)")
-                    column_config = {
-                        "Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka"),
-                        "Buy": st.column_config.NumberColumn("Harga Signal", format="Rp %d"),
-                        "LastPrice": st.column_config.NumberColumn("Harga Terkini", format="Rp %d"),
-                        "Hasil": st.column_config.TextColumn("Kenaikan %"),
-                    }
-                    final_df = df_buy[['No', 'Emiten', 'Status', 'Buy', 'LastPrice', 'Hasil', 'Chart']]
+                if not df_buy.empty:
+                    # Simpan hasil scan terakhir ke session state agar bisa di-add ke portfolio
+                    st.session_state['last_scan_result'] = df_buy
                     
-                else:
                     st.subheader("🔥 REKOMENDASI SAHAM HARI INI")
+                    
                     column_config = {
                         "Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka"),
                         "Buy": st.column_config.NumberColumn("Harga Buy", format="Rp %d"),
@@ -313,19 +247,126 @@ if st.button(btn_txt):
                         "Max Lot": st.column_config.NumberColumn("Max Lot", format="%d Lot"),
                         "Risk%": st.column_config.NumberColumn("Risk", format="%.1f %%"),
                     }
-                    cols_to_show = ['No', 'Emiten', 'Status', 'Buy', 'Max Lot', 'SL', 'TP', 'Risk%', 'Chart']
-                    final_df = df_buy[cols_to_show]
+                    
+                    cols_to_show = ['Emiten', 'Status', 'Buy', 'Max Lot', 'SL', 'TP', 'Risk%', 'Chart']
+                    final_df = df_buy[cols_to_show].reset_index(drop=True)
+                    final_df.insert(0, 'No', range(1, 1 + len(final_df)))
 
-                styled_df = (final_df.style
-                    .set_properties(**{'text-align': 'center'}) 
-                    .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
-                    .applymap(lambda x: 'background-color: #d4edda; color: green; font-weight: bold;' if '+' in str(x) else ('background-color: #f8d7da; color: red; font-weight: bold;' if '🔻' in str(x) else ''), subset=['Hasil'] if 'Hasil' in final_df.columns else [])
-                )
-                
-                if backtest_days == 0:
-                    styled_df = styled_df.applymap(lambda x: 'background-color: #cce5ff; color: #004085; font-weight: bold;', subset=['Max Lot'])
-                    styled_df = styled_df.applymap(lambda x: 'color: red; font-weight: bold;', subset=['SL'])
+                    styled_df = (final_df.style
+                        .set_properties(**{'text-align': 'center'}) 
+                        .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
+                        .applymap(lambda x: 'background-color: #cce5ff; color: #004085; font-weight: bold;', subset=['Max Lot'])
+                        .applymap(lambda x: 'color: red; font-weight: bold;', subset=['SL'])
+                    )
 
-                st.dataframe(styled_df, column_config=column_config, use_container_width=True, hide_index=True)
-            else: st.info(f"Tidak ada sinyal Buy.")
-        else: st.error("Data tidak ditemukan atau Kode Saham Salah.")
+                    st.dataframe(styled_df, column_config=column_config, use_container_width=True, hide_index=True)
+                    
+                    # TOMBOL SIMPAN
+                    st.divider()
+                    c1, c2 = st.columns([3,1])
+                    with c2:
+                        if st.button("📥 SIMPAN HASIL SCAN KE PORTOFOLIO", type="primary"):
+                            # Tambahkan data ke Portfolio Session
+                            tgl_str = tgl_sinyal.strftime('%Y-%m-%d')
+                            for index, row in df_buy.iterrows():
+                                new_row = {
+                                    'Tanggal': tgl_str,
+                                    'Emiten': row['Emiten'],
+                                    'Harga Beli': row['Buy'],
+                                    'Lot': row['Max Lot'],
+                                    'Investasi': row['Buy'] * row['Max Lot'] * 100
+                                }
+                                # Cek duplikasi hari ini
+                                existing = st.session_state['portfolio'][
+                                    (st.session_state['portfolio']['Emiten'] == row['Emiten']) & 
+                                    (st.session_state['portfolio']['Tanggal'] == tgl_str)
+                                ]
+                                if existing.empty:
+                                    st.session_state['portfolio'] = pd.concat([st.session_state['portfolio'], pd.DataFrame([new_row])], ignore_index=True)
+                            
+                            st.success("✅ Saham berhasil disimpan ke Tab Portofolio!")
+                else: st.info(f"Tidak ada sinyal Buy.")
+            else: st.error("Data tidak ditemukan.")
+
+with tab2:
+    st.header("💼 Portofolio & Forward Test")
+    st.caption("Pantau kinerja saham yang sudah Bapak simpan sebelumnya.")
+    
+    if st.session_state['portfolio'].empty:
+        st.info("Portofolio masih kosong. Silakan lakukan SCAN dulu, lalu klik tombol 'SIMPAN' di bawah tabel hasil.")
+    else:
+        # Tampilkan Tabel Portfolio
+        portfolio_df = st.session_state['portfolio'].copy()
+        
+        # Cek Harga Terkini (Live)
+        current_prices = []
+        profits = []
+        profit_pcts = []
+        
+        with st.spinner("Mengupdate Harga Terkini..."):
+            ticker_list_port = [f"{x}.JK" for x in portfolio_df['Emiten'].unique()]
+            if ticker_list_port:
+                try:
+                    live_data = yf.download(ticker_list_port, period="1d", progress=False)['Close']
+                    # Handle jika cuma 1 saham (Series)
+                    if isinstance(live_data, pd.Series) or isinstance(live_data, float):
+                        # Re-download if format is weird, or handle single ticker logic
+                         current_val = live_data.iloc[-1] if hasattr(live_data, 'iloc') else live_data
+                         # Mapping manual for single ticker is tricky with download batch returning series
+                         # Fallback looping safer for small portfolio
+                         pass
+                except: pass
+
+            for index, row in portfolio_df.iterrows():
+                try:
+                    tick_obj = yf.Ticker(f"{row['Emiten']}.JK")
+                    curr_price = tick_obj.history(period='1d')['Close'].iloc[-1]
+                    
+                    gain = (curr_price - row['Harga Beli']) * row['Lot'] * 100
+                    gain_pct = ((curr_price - row['Harga Beli']) / row['Harga Beli']) * 100
+                    
+                    current_prices.append(int(curr_price))
+                    profits.append(int(gain))
+                    profit_pcts.append(round(gain_pct, 2))
+                except:
+                    current_prices.append(0)
+                    profits.append(0)
+                    profit_pcts.append(0.0)
+        
+        portfolio_df['Harga Kini'] = current_prices
+        portfolio_df['Profit (Rp)'] = profits
+        portfolio_df['Profit (%)'] = profit_pcts
+        
+        # Coloring function
+        def color_profit(val):
+            color = 'green' if val > 0 else 'red'
+            return f'color: {color}; font-weight: bold;'
+
+        # Tampilkan Tabel
+        st.dataframe(
+            portfolio_df.style.applymap(color_profit, subset=['Profit (%)', 'Profit (Rp)'])
+            .format({"Harga Beli": "Rp {:,.0f}", "Harga Kini": "Rp {:,.0f}", "Investasi": "Rp {:,.0f}", "Profit (Rp)": "Rp {:,.0f}", "Profit (%)": "{:,.2f}%"}),
+            use_container_width=True
+        )
+        
+        # TOTAL SUMMARY
+        total_inv = portfolio_df['Investasi'].sum()
+        total_profit = portfolio_df['Profit (Rp)'].sum()
+        total_perf = (total_profit / total_inv * 100) if total_inv > 0 else 0
+        
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Total Investasi", f"Rp {total_inv:,.0f}")
+        m2.metric("Total Profit/Loss", f"Rp {total_profit:,.0f}", delta_color="normal")
+        m3.metric("Kinerja Portofolio", f"{total_perf:.2f}%", "Hijau = Bagus" if total_perf > 0 else "Merah = Rugi")
+        
+        st.divider()
+        st.subheader("💾 Backup Data (PENTING!)")
+        st.caption("Karena ini Web App, data akan hilang jika direfresh. Download file CSV ini untuk menyimpan data portofolio Bapak.")
+        
+        csv = portfolio_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download Portfolio ke Excel/CSV",
+            data=csv,
+            file_name='noris_portfolio.csv',
+            mime='text/csv',
+        )
