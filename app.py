@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import pytz
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Adienov Trading System", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Adienov Pro V10", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
     <style>
@@ -16,13 +16,14 @@ st.markdown("""
         div.stButton > button { width: 100%; border-radius: 20px; background-color: #007BFF; color: white !important; font-weight: bold;}
         .dataframe { text-align: center !important; }
         th { text-align: center !important; }
-        div[data-testid="stMetricValue"] { font-size: 1.2rem !important; }
+        div[data-testid="stMetricValue"] { font-size: 1.1rem !important; }
+        div[data-testid="stMetricLabel"] { font-size: 0.8rem !important; }
     </style>
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER & INPUT ---
-st.title("📱 Adienov Pro: V9")
-st.caption("Smart Money Detector • IHSG Barometer • Time Machine")
+st.title("📱 Adienov Pro: V10")
+st.caption("Performance Audit • Smart Money • IHSG Barometer")
 
 # --- BAROMETER IHSG ---
 def get_ihsg_status():
@@ -52,7 +53,7 @@ st.info("⚙️ **SETTING:** Klik panah **( > )** di kiri atas.")
 
 with st.sidebar:
     st.header("⚙️ Filter & Waktu")
-    backtest_days = st.slider("⏳ Backtest", 0, 30, 0)
+    backtest_days = st.slider("⏳ Mundur Berapa Hari?", 0, 30, 0)
     st.divider()
     min_trans = st.number_input("Min. Transaksi (Miliar)", value=2.0, step=0.5)
     risk_tol = st.slider("Toleransi Trend (%)", 1.0, 10.0, 5.0)
@@ -104,18 +105,16 @@ def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio, days_back):
             high_rolling = df['High'].rolling(window=turtle_window).max().shift(1)
             breakout_level = float(high_rolling.iloc[-1])
 
-            # --- ANALISA VOLUME SPIKE (Smart Money) ---
+            # Volume Spike
             curr_vol = df['Volume'].iloc[-1]
             avg_vol_20 = df['Volume'].rolling(window=20).mean().iloc[-1]
             vol_ratio = curr_vol / avg_vol_20 if avg_vol_20 > 0 else 0
             
             vol_status = "NORMAL"
-            if vol_ratio >= 2.0:
-                vol_status = "🔥 SPIKE" # Volume 2x Rata-rata
-            elif vol_ratio >= 1.5:
-                vol_status = "⚡ HIGH" # Volume 1.5x Rata-rata
+            if vol_ratio >= 2.0: vol_status = "🔥 SPIKE"
+            elif vol_ratio >= 1.5: vol_status = "⚡ HIGH"
 
-            # Filter Value Transaksi
+            # Filter Value
             avg_val = (signal_close * df['Volume'].mean()) / 1000000000 
             if avg_val < min_val_m: continue
 
@@ -141,13 +140,16 @@ def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio, days_back):
                 priority = 4
                 diff = 0
 
-            # Backtest Result
+            # Hitung Hasil (Backtest)
             performance_label = "⏳ WAIT"
             perf_val = 0
             if days_back > 0 and "DOWN" not in status:
                 change_pct = ((real_current_price - signal_close) / signal_close) * 100
                 perf_val = change_pct
-                performance_label = f"✅ WIN +{change_pct:.1f}%" if change_pct > 0 else f"❌ LOSS {change_pct:.1f}%"
+                if change_pct > 0:
+                    performance_label = f"✅ +{change_pct:.1f}%"
+                else:
+                    performance_label = f"🔻 {change_pct:.1f}%"
             elif days_back == 0:
                 performance_label = "🆕 LIVE"
 
@@ -159,8 +161,8 @@ def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio, days_back):
                 "Emiten": ticker_clean,
                 "Jenis": label_syariah,
                 "Status": status,
-                "Vol Spike": vol_status, # Kolom Baru
-                "Vol Ratio": vol_ratio, # Untuk Sorting
+                "Vol Spike": vol_status,
+                "Vol Ratio": vol_ratio,
                 "Buy": int(signal_close),
                 "Hasil": performance_label,
                 "SL": stop_loss,
@@ -179,11 +181,11 @@ def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio, days_back):
     
     df_res = pd.DataFrame(results)
     if not df_res.empty:
-        # Sortir: Prioritas -> Volume Spike Tertinggi -> Risk Terkecil
-        if days_back == 0:
-            df_res = df_res.sort_values(by=["Priority", "Vol Ratio", "Risk%"], ascending=[True, False, True])
-        else:
+        # Sortir: Prioritaskan PROFIT BESAR di Backtest
+        if days_back > 0:
             df_res = df_res.sort_values(by=["PerfVal"], ascending=False)
+        else:
+            df_res = df_res.sort_values(by=["Priority", "Vol Ratio", "Risk%"], ascending=[True, False, True])
             
     return df_res
 
@@ -201,18 +203,54 @@ if st.button(f"RUN SCANNER ({'HARI INI' if backtest_days==0 else f'MUNDUR {backt
         df = scan_market(min_trans, risk_tol, turtle_day, rr_ratio, backtest_days)
         
         if not df.empty:
-            column_config = {
-                "Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka"),
-                "Buy": st.column_config.NumberColumn("Buy", format="Rp %d"),
-                "SL": st.column_config.NumberColumn("SL", format="Rp %d"),
-                "TP": st.column_config.NumberColumn("TP", format="Rp %d"),
-                "Risk%": st.column_config.NumberColumn("Jarak", format="%.1f %%"),
-            }
-
             df_buy = df[df['Status'].str.contains("BREAKOUT|EARLY")]
             
+            # --- RAPOR KINERJA (BACKTEST DASHBOARD) ---
+            if backtest_days > 0 and not df_buy.empty:
+                st.subheader("📊 RAPOR KINERJA (Sinyal Buy)")
+                
+                # Hitung Statistik
+                total_trades = len(df_buy)
+                winners = df_buy[df_buy['PerfVal'] > 0]
+                losers = df_buy[df_buy['PerfVal'] <= 0]
+                
+                win_count = len(winners)
+                loss_count = len(losers)
+                win_rate = (win_count / total_trades) * 100 if total_trades > 0 else 0
+                
+                avg_win = winners['PerfVal'].mean() if not winners.empty else 0
+                avg_loss = losers['PerfVal'].mean() if not losers.empty else 0
+                max_drawdown = df_buy['PerfVal'].min() if not df_buy.empty else 0
+                
+                # Rasio Reward Real (Avg Win / Avg Loss)
+                real_rr = abs(avg_win / avg_loss) if avg_loss != 0 else 0
+                
+                # Tampilkan Dashboard
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Win Rate", f"{win_rate:.0f}%", f"{win_count} Win / {loss_count} Loss")
+                m2.metric("Rata2 CUAN (Avg Win)", f"+{avg_win:.1f}%", "Target Profit", delta_color="normal")
+                m3.metric("Rata2 RUGI (Avg Loss)", f"{avg_loss:.1f}%", f"Max DD: {max_drawdown:.1f}%", delta_color="inverse")
+                
+                # Indikator Kualitas Strategi
+                if real_rr > 1.5:
+                    rr_label = "🔥 LUAR BIASA (Big Profit)"
+                elif real_rr > 1.0:
+                    rr_label = "✅ BAGUS (Profitable)"
+                else:
+                    rr_label = "⚠️ BAHAYA (Small Win, Big Loss)"
+                    
+                m4.metric("Risk:Reward Real", f"{real_rr:.1f}x", rr_label)
+                st.markdown("---")
+
+            # --- TABEL HASIL ---
             if not df_buy.empty:
-                st.subheader("📊 HASIL ANALISA")
+                column_config = {
+                    "Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka"),
+                    "Buy": st.column_config.NumberColumn("Buy", format="Rp %d"),
+                    "SL": st.column_config.NumberColumn("SL", format="Rp %d"),
+                    "TP": st.column_config.NumberColumn("TP", format="Rp %d"),
+                    "Risk%": st.column_config.NumberColumn("Jarak", format="%.1f %%"),
+                }
                 
                 styled_df = (df_buy.drop(columns=['Priority', 'PerfVal', 'Vol Ratio']).style
                     .format({"Buy": "{:.0f}", "SL": "{:.0f}", "TP": "{:.0f}", "Risk%": "{:.1f}"})
@@ -222,6 +260,8 @@ if st.button(f"RUN SCANNER ({'HARI INI' if backtest_days==0 else f'MUNDUR {backt
                     .applymap(lambda x: 'color: red; font-weight: bold;', subset=['SL'])
                     # Warna Volume Spike
                     .applymap(lambda x: 'background-color: #ffcccc; color: red; font-weight: bold;' if 'SPIKE' in str(x) else ('background-color: #fff3cd; color: orange; font-weight: bold;' if 'HIGH' in str(x) else ''), subset=['Vol Spike'])
+                    # Warna Hasil Backtest (Hijau Tebal untuk Cuan Besar, Merah Tebal untuk Rugi Besar)
+                    .applymap(lambda x: 'background-color: #d4edda; color: green; font-weight: bold;' if '+' in str(x) else ('background-color: #f8d7da; color: red; font-weight: bold;' if '🔻' in str(x) else ''), subset=['Hasil'])
                 )
                 st.dataframe(styled_df, column_config=column_config, use_container_width=True, hide_index=True)
             else: st.info("Tidak ada sinyal Buy.")
