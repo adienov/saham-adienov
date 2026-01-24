@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import pytz
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V20", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System V21", layout="wide", initial_sidebar_state="expanded")
 
 # CSS: Styling
 st.markdown("""
@@ -24,8 +24,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER ---
-st.title("📱 Noris Trading System V20")
-st.caption("Full Spectrum Scanner: Breakout • Follow Up • Early Trend")
+st.title("📱 Noris Trading System V21")
+st.caption("Audit Mode: Historical Performance Verification")
 
 # --- BAROMETER IHSG (LIVE) ---
 def get_ihsg_status():
@@ -56,7 +56,6 @@ def get_performance_history(tickers_list, days_back):
     try:
         data = yf.download(tickers_list, period="3mo", progress=False)['Close']
         data_cut = data.iloc[-(days_back+1):]
-        # Normalisasi
         normalized_stocks = (data_cut / data_cut.iloc[0] - 1) * 100
         system_curve = normalized_stocks.mean(axis=1)
         system_curve.name = "NORIS SYSTEM (Portfolio)"
@@ -68,14 +67,14 @@ def get_performance_history(tickers_list, days_back):
 # --- EXPANDER KAMUS ---
 with st.expander("📖 KAMUS & CARA BACA (Klik Disini)"):
     st.markdown("""
-    ### 1. 🚦 Kategori Sinyal (Full Spectrum)
+    ### 1. 🚦 Kategori Sinyal
     * **🚀 BREAKOUT:** Harga jebol Highest High 20 Hari.
     * **🔥 FOLLOW UP:** Harga jebol High Kemarin.
     * **🟢 EARLY TREND:** Harga > Garis Merah (Alligator).
     
-    ### 2. 📈 Grafik Komparasi
-    * Menunjukkan performa rata-rata **SELURUH SAHAM** yang terdeteksi scanner vs IHSG.
-    * Semakin banyak saham yang terdeteksi, semakin valid datanya.
+    ### 2. 📊 Mode Tabel
+    * **Mode LIVE:** Menampilkan Target TP, SL, dan Lot untuk trading.
+    * **Mode BACKTEST:** Menampilkan **Harga Dulu vs Harga Sekarang** untuk cek kejujuran sistem.
     """)
 
 # --- 3. SIDEBAR (INPUT) ---
@@ -164,47 +163,41 @@ def scan_market(min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vo
             status = ""
             priority = 0
             
-            # 1. Breakout (Paling Kuat)
             if signal_close > breakout_level:
                 status = "🚀 BREAKOUT"
                 priority = 1
                 diff = ((signal_close - breakout_level) / breakout_level) * 100
-            
-            # 2. Follow Up (Momentum)
             elif signal_close > prev_high and signal_close > red_line:
                 status = "🔥 FOLLOW UP"
                 priority = 2
                 diff = ((signal_close - prev_high) / prev_high) * 100
-            
-            # 3. Early Trend (Awal Naik) - DIKEMBALIKAN!
             elif signal_close > red_line:
                 status = "🟢 EARLY TREND"
                 priority = 3
                 diff = ((signal_close - red_line) / signal_close) * 100
-                if diff > risk_tol: 
-                     status = "⚠️ EXTENDED"
-                     priority = 4
-            
+                if diff > risk_tol: status = "⚠️ EXTENDED"; priority = 4
             else:
                 status = "🔴 WAIT"
                 priority = 5
                 diff = 0
 
-            # Backtest Logic
+            # --- BACKTEST CALCULATION ---
             performance_label = "⏳ WAIT"
             perf_val = 0
+            real_current_price = 0
             
-            # Hanya hitung performa jika Status BUY (Bukan Wait/Extended)
             is_buy_signal = "BREAKOUT" in status or "FOLLOW" in status or "EARLY" in status
             
             if days_back > 0 and is_buy_signal:
-                real_current_price = float(df_full['Close'].iloc[-1])
+                real_current_price = float(df_full['Close'].iloc[-1]) # Harga Hari Ini
                 change_pct = ((real_current_price - signal_close) / signal_close) * 100
                 perf_val = change_pct
+                
+                # Format Label Profit/Loss
                 if change_pct > 0: performance_label = f"✅ +{change_pct:.1f}%"
                 else: performance_label = f"🔻 {change_pct:.1f}%"
                 
-                selected_tickers.append(ticker) # Masuk ke grafik portofolio
+                selected_tickers.append(ticker)
 
             elif days_back == 0:
                 performance_label = "🆕 LIVE"
@@ -218,8 +211,7 @@ def scan_market(min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vo
                 calc_lot = (risk_money_rupiah / risk_per_share) / 100
                 max_lot = int(calc_lot)
                 total_buy_val = max_lot * 100 * signal_close
-                if total_buy_val > modal_rupiah:
-                    max_lot = int((modal_rupiah / signal_close) / 100)
+                if total_buy_val > modal_rupiah: max_lot = int((modal_rupiah / signal_close) / 100)
             
             take_profit = int(signal_close + (risk_per_share * 1.5))
             
@@ -230,6 +222,7 @@ def scan_market(min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vo
                 "Speed": f"{atr_pct:.1f}%",
                 "Vol Spike": vol_spike_status,
                 "Buy": int(signal_close),
+                "LastPrice": int(real_current_price), # Harga Terkini
                 "Hasil": performance_label,
                 "Max Lot": max_lot,
                 "SL": stop_loss,
@@ -270,18 +263,16 @@ if st.button(btn_txt):
         df, sel_tickers = scan_market(min_trans, risk_tol, backtest_days, modal_juta, risk_per_trade_pct, min_volatility)
         
         if not df.empty:
-            # Filter: Ambil SEMUA yang statusnya Buy (Termasuk Early Trend)
             df_buy = df[df['Status'].str.contains("BREAKOUT|FOLLOW|EARLY")]
             
             if backtest_days > 0 and not df_buy.empty:
-                st.subheader("📈 GRAFIK PERFORMA: PORTOFOLIO SYSTEM VS IHSG")
+                st.subheader("📈 GRAFIK PERFORMA")
                 chart_df = get_performance_history(sel_tickers, backtest_days)
-                
                 if chart_df is not None:
                     st.line_chart(chart_df, color=["#00FF00", "#FF0000"]) 
-                    st.caption(f"🟢 Garis Hijau: Rata-rata dari {len(sel_tickers)} saham | 🔴 Garis Merah: IHSG")
+                    st.caption(f"🟢 Hijau: Noris System | 🔴 Merah: IHSG")
 
-                st.subheader("🥊 DETAIL STATISTIK")
+                # Detail Statistik
                 avg_sys_return = df_buy['PerfVal'].mean()
                 ihsg_ret = chart_df['IHSG (Benchmark)'].iloc[-1] if chart_df is not None else 0
                 alpha = avg_sys_return - ihsg_ret
@@ -289,40 +280,52 @@ if st.button(btn_txt):
                 win_rate = (len(winners) / len(df_buy)) * 100
                 
                 c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Kinerja System", f"{avg_sys_return:.2f}%", f"Dari {len(df_buy)} Saham")
-                c2.metric("Kinerja IHSG", f"{ihsg_ret:.2f}%", "Benchmark")
-                c3.metric("Win Rate", f"{win_rate:.0f}%", f"{len(winners)} Win")
-                alpha_label = "MENGALAHKAN PASAR 🔥" if alpha > 0 else "KALAH ⚠️"
-                c4.metric("ALPHA", f"{alpha:.2f}%", alpha_label)
-                
+                c1.metric("Avg Profit", f"{avg_sys_return:.2f}%")
+                c2.metric("IHSG Return", f"{ihsg_ret:.2f}%")
+                c3.metric("Win Rate", f"{win_rate:.0f}%")
+                c4.metric("ALPHA", f"{alpha:.2f}%", "MENGALAHKAN PASAR 🔥" if alpha > 0 else "KALAH ⚠️")
                 st.markdown("---")
             
             if not df_buy.empty:
                 df_buy = df_buy.reset_index(drop=True)
                 df_buy.insert(0, 'No', range(1, 1 + len(df_buy)))
                 
-                st.subheader("📋 DAFTAR SAHAM (Transparansi Penuh)")
-                
-                column_config = {
-                    "Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka"),
-                    "Buy": st.column_config.NumberColumn("Buy", format="Rp %d"),
-                    "SL": st.column_config.NumberColumn("SL", format="Rp %d"),
-                    "TP": st.column_config.NumberColumn("TP", format="Rp %d"),
-                    "Max Lot": st.column_config.NumberColumn("Max Lot", format="%d Lot"),
-                    "Risk%": st.column_config.NumberColumn("Jarak", format="%.1f %%"),
-                    "Speed": st.column_config.TextColumn("Speed"),
-                }
-                
-                styled_df = (df_buy.drop(columns=['Priority', 'PerfVal', 'VolRatio']).style
-                    .format({"Buy": "{:.0f}", "SL": "{:.0f}", "TP": "{:.0f}", "Risk%": "{:.1f}"})
+                # --- LOGIKA TAMPILAN KOLOM (LIVE vs BACKTEST) ---
+                if backtest_days > 0:
+                    st.subheader("📋 HASIL BACKTEST (Dulu vs Sekarang)")
+                    column_config = {
+                        "Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka"),
+                        "Buy": st.column_config.NumberColumn("Harga Signal", format="Rp %d"),
+                        "LastPrice": st.column_config.NumberColumn("Harga Terkini", format="Rp %d"), # Kolom Khusus Backtest
+                        "Hasil": st.column_config.TextColumn("Kenaikan %"),
+                    }
+                    # Hanya tampilkan kolom yang diminta user
+                    final_df = df_buy[['No', 'Emiten', 'Status', 'Buy', 'LastPrice', 'Hasil', 'Chart']]
+                    
+                else:
+                    st.subheader("🔥 REKOMENDASI SAHAM HARI INI")
+                    column_config = {
+                        "Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka"),
+                        "Buy": st.column_config.NumberColumn("Harga Buy", format="Rp %d"),
+                        "SL": st.column_config.NumberColumn("Stop Loss", format="Rp %d"),
+                        "TP": st.column_config.NumberColumn("Take Profit", format="Rp %d"),
+                        "Max Lot": st.column_config.NumberColumn("Max Lot", format="%d Lot"),
+                        "Risk%": st.column_config.NumberColumn("Risk", format="%.1f %%"),
+                    }
+                    final_df = df_buy.drop(columns=['Priority', 'PerfVal', 'VolRatio', 'LastPrice'])
+
+                # Styling
+                styled_df = (final_df.style
                     .set_properties(**{'text-align': 'center'}) 
                     .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
-                    .background_gradient(subset=['Risk%'], cmap="Greens")
-                    .applymap(lambda x: 'color: red; font-weight: bold;', subset=['SL'])
-                    .applymap(lambda x: 'background-color: #ffcccc; color: red; font-weight: bold;' if 'SPIKE' in str(x) else '', subset=['Vol Spike'])
                     .applymap(lambda x: 'background-color: #d4edda; color: green; font-weight: bold;' if '+' in str(x) else ('background-color: #f8d7da; color: red; font-weight: bold;' if '🔻' in str(x) else ''), subset=['Hasil'])
-                    .applymap(lambda x: 'background-color: #cce5ff; color: #004085; font-weight: bold;', subset=['Max Lot'])
                 )
+                
+                # Tambahkan styling Max Lot hanya jika Mode LIVE
+                if backtest_days == 0:
+                    styled_df = styled_df.applymap(lambda x: 'background-color: #cce5ff; color: #004085; font-weight: bold;', subset=['Max Lot'])
+                    styled_df = styled_df.applymap(lambda x: 'color: red; font-weight: bold;', subset=['SL'])
+
                 st.dataframe(styled_df, column_config=column_config, use_container_width=True, hide_index=True)
             else: st.info(f"Tidak ada sinyal Buy.")
         else: st.error("Data tidak ditemukan.")
