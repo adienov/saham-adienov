@@ -1,13 +1,11 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from datetime import datetime
 
 # --- 1. KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="Adienov Super Scanner", page_icon="📈", layout="wide")
 
-# --- 2. DATABASE SAHAM (DIPERLUAS KE 50+ SAHAM LIQUID) ---
-# Kombinasi Bluechip, Second Liner, dan Saham Volatil
+# --- 2. DATABASE SAHAM (50+ SAHAM) ---
 tickers = [
     # PERBANKAN
     "BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "BRIS.JK", "BBTN.JK", "ARTO.JK", "BNGA.JK",
@@ -34,13 +32,12 @@ strategi = st.sidebar.selectbox(
 
 st.sidebar.divider()
 
-# A. FILTER UMUM (Default diturunkan jadi 1M biar lebih banyak hasil)
+# A. FILTER UMUM
 min_transaksi = st.sidebar.number_input("Min. Transaksi (Miliar)", value=1.0, step=0.5)
 
 # B. SETTING KHUSUS
 if strategi == "🟢 Reversal (Early Buy)":
     st.sidebar.info("Mencari saham yang baru mantul dari Garis Merah (Alligator).")
-    # Default dinaikkan jadi 10% agar lebih longgar
     toleransi = st.sidebar.slider("Jarak Toleransi (%)", 1.0, 15.0, 8.0) 
 else:
     st.sidebar.info("Mencari saham Uptrend yang menembus harga tertinggi.")
@@ -52,7 +49,6 @@ def analyze_stock(ticker, strategy_mode):
         df = yf.download(ticker, period="6mo", interval="1d", progress=False)
         if len(df) < 60: return None
         
-        # Bersihkan Multi-Index jika ada (Masalah umum yfinance baru)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
@@ -61,49 +57,43 @@ def analyze_stock(ticker, strategy_mode):
         prev_close = float(df['Close'].iloc[-2])
         last_vol   = float(df['Volume'].iloc[-1])
         
-        # Hitung Transaksi (Miliar)
         avg_vol_20 = df['Volume'].rolling(20).mean().iloc[-1]
         transaksi_m = (last_close * avg_vol_20) / 1_000_000_000
         
-        # Filter Transaksi
         if transaksi_m < min_transaksi: return None
         
         signal = False
         info_text = ""
         
-        # --- LOGIKA 1: REVERSAL (EARLY BUY) ---
+        # LOGIKA STRATEGI
         if strategy_mode == "🟢 Reversal (Early Buy)":
-            # Kita pakai MA 13 sebagai pendekatan Alligator Lips/Teeth
             ma_red = df['Close'].rolling(window=13).mean().iloc[-1]
-            
-            # Syarat: Close > MA (Uptrend)
             if last_close > ma_red:
                 jarak = ((last_close - ma_red) / last_close) * 100
-                
-                # Syarat: Jarak tidak boleh kejauhan (Sesuai Slider Toleransi)
                 if jarak <= toleransi:
                     signal = True
-                    info_text = f"Jarak ke MA: {jarak:.1f}% (Aman)"
+                    info_text = f"Jarak aman: {jarak:.1f}%"
         
-        # --- LOGIKA 2: BREAKOUT ---
         elif strategy_mode == "🚀 Breakout (Uptrend)":
-            # Cari harga tertinggi N hari ke belakang (tidak termasuk hari ini)
             highest_prev = df['High'].iloc[-lookback-1:-1].max()
-            
-            # Syarat: Close hari ini > Harga Tertinggi Kemarin
             if last_close > highest_prev:
                 signal = True
                 pct_break = ((last_close - highest_prev) / highest_prev) * 100
-                info_text = f"Breakout +{pct_break:.1f}% dari High {lookback} Hari"
+                info_text = f"Breakout +{pct_break:.1f}%"
 
         if signal:
+            # BERSIHKAN KODE SAHAM UNTUK LINK
+            clean_ticker = ticker.replace(".JK", "")
+            # BUAT LINK TRADINGVIEW
+            tv_link = f"https://www.tradingview.com/chart/?symbol=IDX:{clean_ticker}"
+            
             return {
-                "Saham": ticker.replace(".JK", ""),
+                "Saham": clean_ticker,
                 "Harga": int(last_close),
                 "Chg%": f"{((last_close - prev_close)/prev_close)*100:.2f}%",
                 "Vol (xAvg)": f"{last_vol/avg_vol_20:.1f}x",
-                "Transaksi": f"{transaksi_m:.1f} M",
-                "Keterangan": info_text
+                "Keterangan": info_text,
+                "Link": tv_link  # Kolom ini nanti kita ubah jadi tombol
             }
             
     except Exception as e:
@@ -111,10 +101,10 @@ def analyze_stock(ticker, strategy_mode):
     return None
 
 # --- 5. TAMPILAN UTAMA ---
-st.title(f"Adienov Scanner V2: {strategi}")
+st.title(f"Adienov Scanner V3: Auto-Link")
 
-if st.button("🔍 MULAI SCAN (LIST LEBIH BANYAK)"):
-    with st.status("Memindai 50+ Saham Pilihan... Sabar ya Pak...", expanded=True) as status:
+if st.button("🔍 MULAI SCAN SEKARANG"):
+    with st.status("Sedang mencari peluang...", expanded=True) as status:
         results = []
         progress_bar = st.progress(0)
         
@@ -127,20 +117,25 @@ if st.button("🔍 MULAI SCAN (LIST LEBIH BANYAK)"):
         status.update(label="Selesai!", state="complete", expanded=False)
 
     if len(results) > 0:
-        st.success(f"Alhamdulillah! Ditemukan {len(results)} Saham.")
+        st.success(f"Ditemukan {len(results)} Saham Potensial!")
         df_hasil = pd.DataFrame(results)
-        # Menampilkan tabel dengan format yang rapi
+        
+        # --- KONFIGURASI TABEL AGAR BISA DIKLIK ---
         st.dataframe(
-            df_hasil, 
+            df_hasil,
             column_config={
                 "Harga": st.column_config.NumberColumn(format="Rp %d"),
+                "Link": st.column_config.LinkColumn(
+                    "Chart", 
+                    display_text="Buka Chart ↗️" # Tulisan yang muncul di tombol
+                )
             },
             use_container_width=True,
             hide_index=True
         )
     else:
-        st.warning(f"Masih Kosong Pak. Pasar lagi sepi atau filter terlalu ketat.")
-        st.info("💡 TIPS: Coba geser slider 'Toleransi' ke kanan atau turunkan 'Min. Transaksi'.")
+        st.warning(f"Belum ada saham yang masuk kriteria '{strategi}' saat ini.")
+        st.info("Tips: Pasar mungkin sedang koreksi/sepi. Coba ubah filter di sebelah kiri.")
 
 st.markdown("---")
-st.caption("Developed by Adienov System | Data by Yahoo Finance")
+st.caption("Klik 'Buka Chart' untuk langsung analisa di TradingView.")
