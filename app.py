@@ -6,7 +6,7 @@ from datetime import datetime
 import pytz
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Adienov Plan", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Adienov Syariah Plan", layout="wide", initial_sidebar_state="collapsed")
 
 # CSS: Tampilan Center & Rapi
 st.markdown("""
@@ -24,19 +24,20 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER & INPUT ---
-st.title("📱 Adienov Trading Plan")
-st.caption("Auto-Calculate: Entry, Stop Loss, Take Profit (1:1.5)")
+st.title("📱 Adienov Syariah Plan")
+st.caption("Screening Saham Halal & Trading Plan Otomatis")
 st.info("⚙️ **SETTING:** Klik panah **( > )** di kiri atas.")
 
 with st.sidebar:
     st.header("⚙️ Filter Scanner")
     min_trans = st.number_input("Min. Transaksi (Miliar)", value=2.0, step=0.5)
-    risk_tol = st.slider("Toleransi Alligator (%)", 1.0, 10.0, 5.0)
-    turtle_day = st.slider("Periode Turtle (Hari)", 10, 50, 20)
-    rr_ratio = st.number_input("Rasio Risk:Reward", value=1.5, step=0.1, help="Target Profit berapa kali lipat dari resiko?")
+    risk_tol = st.slider("Toleransi Jarak Trend (%)", 1.0, 10.0, 5.0)
+    turtle_day = st.slider("Periode Breakout (Hari)", 10, 50, 20)
+    rr_ratio = st.number_input("Rasio Risk:Reward", value=1.5, step=0.1)
     st.markdown("---")
 
 # --- 3. DATABASE SAHAM ---
+# Tips: Jika Anda memasukkan BBCA/BBRI di sini, otomatis akan terdeteksi NON SYARIAH
 tickers = [
     "ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "ASII.JK",
     "ADRO.JK", "PTBA.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "SIDO.JK",
@@ -45,7 +46,15 @@ tickers = [
     "UNVR.JK", "MYOR.JK", "CPIN.JK", "JPFA.JK", "SMGR.JK", "INTP.JK", "TPIA.JK"
 ]
 
-# --- 4. FUNGSI SCANNER LENGKAP ---
+# DAFTAR BLACKLIST (NON SYARIAH)
+# Tambahkan kode saham konvensional di sini agar ditandai "NON"
+non_syariah_list = [
+    "BBCA", "BBRI", "BMRI", "BBNI", "BBTN", "BDMN", "BNGA", "NISP", # Bank Konvensional
+    "GGRM", "HMSP", "WIIM", "RMBA", # Rokok & Minuman
+    "MAYA", "NOBU", "ARTO" # Bank Digital Konvensional
+]
+
+# --- 4. FUNGSI SCANNER ---
 @st.cache_data(ttl=60)
 def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio):
     results = []
@@ -54,7 +63,9 @@ def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio):
     
     total = len(tickers)
     for i, ticker in enumerate(tickers):
-        text_progress.text(f"Menganalisa {ticker.replace('.JK','')}... ({i+1}/{total})")
+        ticker_clean = ticker.replace(".JK", "")
+        text_progress.text(f"Cek Syariah {ticker_clean}... ({i+1}/{total})")
+        
         try:
             df = yf.download(ticker, period="6mo", progress=False)
             if df.empty or len(df) < turtle_window + 5: continue
@@ -65,12 +76,10 @@ def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio):
             # Indikator
             df['HL2'] = (df['High'] + df['Low']) / 2
             df['Teeth_Raw'] = df.ta.sma(close='HL2', length=8)
-            
-            # Data Terakhir
             current_close = float(df['Close'].iloc[-1])
             red_line = float(df['Teeth_Raw'].iloc[-6]) if not pd.isna(df['Teeth_Raw'].iloc[-6]) else 0
             
-            # Turtle Breakout Logic
+            # Breakout
             high_rolling = df['High'].rolling(window=turtle_window).max().shift(1)
             breakout_level = float(high_rolling.iloc[-1])
 
@@ -78,27 +87,29 @@ def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio):
             avg_val = (current_close * df['Volume'].mean()) / 1000000000 
             if avg_val < min_val_m: continue
 
-            # HITUNG PLAN (SL & TP)
-            # Stop Loss selalu di Garis Merah (dibulatkan ke bawah)
+            # CEK STATUS SYARIAH
+            if ticker_clean in non_syariah_list:
+                label_syariah = "⛔ NON"
+            else:
+                label_syariah = "✅ SYARIAH"
+
+            # HITUNG PLAN
             stop_loss = int(red_line)
             risk_amt = current_close - stop_loss
-            
-            # Take Profit = Harga + (Resiko x Rasio Reward)
-            # Contoh: Resiko 100 perak, Rasio 1.5, maka TP = Harga + 150 perak
             take_profit = int(current_close + (risk_amt * reward_ratio))
 
             status = ""
             priority = 0
 
-            # Cek Status
+            # STATUS MARKET
             if current_close > breakout_level:
-                status = "🐢 TURTLE"
+                status = "🚀 BREAKOUT"
                 priority = 1
                 diff = ((current_close - breakout_level) / breakout_level) * 100
             elif current_close > red_line:
                 diff_alli = ((current_close - red_line) / current_close) * 100
                 if diff_alli <= risk_pct:
-                    status = "🟢 EARLY"
+                    status = "🟢 EARLY TREND"
                     priority = 2
                     diff = diff_alli
                 else:
@@ -110,15 +121,15 @@ def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio):
                 priority = 4
                 diff = ((red_line - current_close) / current_close) * 100
 
-            # Link Chart
-            tv_link = f"https://www.tradingview.com/chart/?symbol=IDX:{ticker.replace('.JK','')}"
+            tv_link = f"https://www.tradingview.com/chart/?symbol=IDX:{ticker_clean}"
 
             results.append({
-                "Emiten": ticker.replace(".JK", ""),
+                "Emiten": ticker_clean,
+                "Jenis": label_syariah,       # Kolom Baru
                 "Status": status,
-                "Buy": int(current_close),    # Kolom Baru
-                "SL": stop_loss,              # Kolom Baru
-                "TP": take_profit,            # Kolom Baru
+                "Buy": int(current_close),
+                "SL": stop_loss,
+                "TP": take_profit,
                 "Risk%": round(diff, 1),
                 "Chart": tv_link,
                 "Priority": priority
@@ -145,7 +156,6 @@ if st.button("🔍 SCAN TRADING PLAN"):
         if not df.empty:
             st.success(f"✅ Update: {waktu_skrg}")
             
-            # Konfigurasi Kolom
             column_config = {
                 "Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka"),
                 "Buy": st.column_config.NumberColumn("Harga Buy", format="Rp %d"),
@@ -154,23 +164,21 @@ if st.button("🔍 SCAN TRADING PLAN"):
                 "Risk%": st.column_config.NumberColumn("Jarak SL", format="%.1f %%"),
             }
 
-            # Filter Hanya Sinyal Buy
-            df_buy = df[df['Status'].str.contains("TURTLE|EARLY")]
+            # Filter Sinyal Buy
+            df_buy = df[df['Status'].str.contains("BREAKOUT|EARLY")]
             
             if not df_buy.empty:
                 st.subheader("🔥 REKOMENDASI PLAN")
                 
-                # STYLING TABEL: Rata Tengah + Warna Kolom
                 styled_df = (df_buy.drop(columns=['Priority']).style
                     .format({"Buy": "{:.0f}", "SL": "{:.0f}", "TP": "{:.0f}", "Risk%": "{:.1f}"})
-                    # Rata Tengah untuk semua sel
                     .set_properties(**{'text-align': 'center'}) 
-                    # Warna Header
                     .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
-                    # Warna Kolom Spesifik
-                    .background_gradient(subset=['Risk%'], cmap="Greens") # Semakin hijau semakin aman
-                    .applymap(lambda x: 'color: red; font-weight: bold;', subset=['SL']) # Angka SL Merah
-                    .applymap(lambda x: 'color: green; font-weight: bold;', subset=['TP']) # Angka TP Hijau
+                    .background_gradient(subset=['Risk%'], cmap="Greens")
+                    .applymap(lambda x: 'color: red; font-weight: bold;', subset=['SL'])
+                    .applymap(lambda x: 'color: green; font-weight: bold;', subset=['TP'])
+                    # Warna khusus kolom Jenis (Merah jika NON, Hijau jika SYARIAH)
+                    .applymap(lambda x: 'color: red; font-weight: bold;' if 'NON' in str(x) else 'color: green;', subset=['Jenis'])
                 )
 
                 st.dataframe(
@@ -182,7 +190,7 @@ if st.button("🔍 SCAN TRADING PLAN"):
             else:
                 st.info("Belum ada sinyal Buy yang aman saat ini.")
 
-            # Tabel Extended (Opsional)
+            # Tabel Extended
             df_ext = df[df['Status'].str.contains("EXTENDED")]
             if not df_ext.empty:
                 with st.expander("⚠️ Saham Extended (Tunggu Koreksi)"):
