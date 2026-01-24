@@ -2,42 +2,41 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Adienov Syariah Plan", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Adienov Backtest", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS: Tampilan Center & Rapi
 st.markdown("""
     <style>
         .stApp { background-color: #FFFFFF; color: #000000; }
         h1 { font-size: 1.6rem !important; padding-top: 10px !important; }
         div[data-testid="stCaptionContainer"] { font-size: 0.8rem; }
         div.stButton > button { width: 100%; border-radius: 20px; background-color: #007BFF; color: white !important; font-weight: bold;}
-        
-        /* Memaksa Teks Tabel Rata Tengah */
         .dataframe { text-align: center !important; }
         th { text-align: center !important; }
-        td { text-align: center !important; }
     </style>
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER & INPUT ---
-st.title("📱 Adienov Syariah Plan")
-st.caption("Screening Saham Halal & Trading Plan Otomatis")
-st.info("⚙️ **SETTING:** Klik panah **( > )** di kiri atas.")
+st.title("📱 Adienov Pro: Time Machine")
+st.caption("Analisa Real-time & Uji Mundur (Backtest)")
+st.info("⚙️ **SETTING:** Klik panah **( > )** di kiri atas untuk Mode Mundur.")
 
 with st.sidebar:
-    st.header("⚙️ Filter Scanner")
+    st.header("⚙️ Filter & Waktu")
+    
+    # --- FITUR BARU: MESIN WAKTU ---
+    backtest_days = st.slider("⏳ Mundur Berapa Hari?", 0, 30, 0, help="0 = Hari Ini. Geser untuk cek performa sinyal masa lalu.")
+    
+    st.divider()
     min_trans = st.number_input("Min. Transaksi (Miliar)", value=2.0, step=0.5)
-    risk_tol = st.slider("Toleransi Jarak Trend (%)", 1.0, 10.0, 5.0)
+    risk_tol = st.slider("Toleransi Trend (%)", 1.0, 10.0, 5.0)
     turtle_day = st.slider("Periode Breakout (Hari)", 10, 50, 20)
     rr_ratio = st.number_input("Rasio Risk:Reward", value=1.5, step=0.1)
-    st.markdown("---")
 
 # --- 3. DATABASE SAHAM ---
-# Tips: Jika Anda memasukkan BBCA/BBRI di sini, otomatis akan terdeteksi NON SYARIAH
 tickers = [
     "ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "ASII.JK",
     "ADRO.JK", "PTBA.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "SIDO.JK",
@@ -46,17 +45,11 @@ tickers = [
     "UNVR.JK", "MYOR.JK", "CPIN.JK", "JPFA.JK", "SMGR.JK", "INTP.JK", "TPIA.JK"
 ]
 
-# DAFTAR BLACKLIST (NON SYARIAH)
-# Tambahkan kode saham konvensional di sini agar ditandai "NON"
-non_syariah_list = [
-    "BBCA", "BBRI", "BMRI", "BBNI", "BBTN", "BDMN", "BNGA", "NISP", # Bank Konvensional
-    "GGRM", "HMSP", "WIIM", "RMBA", # Rokok & Minuman
-    "MAYA", "NOBU", "ARTO" # Bank Digital Konvensional
-]
+non_syariah_list = ["BBCA", "BBRI", "BMRI", "BBNI", "BBTN", "BDMN", "BNGA", "NISP", "GGRM", "HMSP", "WIIM", "RMBA", "MAYA", "NOBU", "ARTO"]
 
-# --- 4. FUNGSI SCANNER ---
+# --- 4. FUNGSI SCANNER CANGGIH ---
 @st.cache_data(ttl=60)
-def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio):
+def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio, days_back):
     results = []
     text_progress = st.empty()
     bar_progress = st.progress(0)
@@ -64,50 +57,54 @@ def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio):
     total = len(tickers)
     for i, ticker in enumerate(tickers):
         ticker_clean = ticker.replace(".JK", "")
-        text_progress.text(f"Cek Syariah {ticker_clean}... ({i+1}/{total})")
+        text_progress.text(f"Analisa {ticker_clean}... ({i+1}/{total})")
         
         try:
-            df = yf.download(ticker, period="6mo", progress=False)
-            if df.empty or len(df) < turtle_window + 5: continue
+            # Ambil data lebih panjang agar bisa dipotong
+            df_full = yf.download(ticker, period="6mo", progress=False)
+            
+            # --- LOGIKA MESIN WAKTU ---
+            if df_full.empty or len(df_full) < (turtle_window + 5 + days_back): continue
+            
             try:
-                if isinstance(df.columns, pd.MultiIndex): df = df.xs(ticker, level=1, axis=1)
+                if isinstance(df_full.columns, pd.MultiIndex): df_full = df_full.xs(ticker, level=1, axis=1)
             except: pass
 
-            # Indikator
+            # Harga HARI INI (Real) - Untuk Validasi
+            real_current_price = float(df_full['Close'].iloc[-1])
+
+            # Potong Data (Simulasi Masa Lalu)
+            if days_back > 0:
+                df = df_full.iloc[:-days_back].copy() # Data berhenti di X hari lalu
+            else:
+                df = df_full.copy() # Data hari ini
+
+            # --- INDIKATOR (Dihitung berdasarkan data potongan) ---
             df['HL2'] = (df['High'] + df['Low']) / 2
             df['Teeth_Raw'] = df.ta.sma(close='HL2', length=8)
-            current_close = float(df['Close'].iloc[-1])
+            
+            # Harga pada SAAT SINYAL MUNCUL (Masa Lalu)
+            signal_close = float(df['Close'].iloc[-1])
             red_line = float(df['Teeth_Raw'].iloc[-6]) if not pd.isna(df['Teeth_Raw'].iloc[-6]) else 0
             
-            # Breakout
+            # Breakout Logic
             high_rolling = df['High'].rolling(window=turtle_window).max().shift(1)
             breakout_level = float(high_rolling.iloc[-1])
 
-            # Filter Volume
-            avg_val = (current_close * df['Volume'].mean()) / 1000000000 
+            # Volume Check
+            avg_val = (signal_close * df['Volume'].mean()) / 1000000000 
             if avg_val < min_val_m: continue
 
-            # CEK STATUS SYARIAH
-            if ticker_clean in non_syariah_list:
-                label_syariah = "⛔ NON"
-            else:
-                label_syariah = "✅ SYARIAH"
-
-            # HITUNG PLAN
-            stop_loss = int(red_line)
-            risk_amt = current_close - stop_loss
-            take_profit = int(current_close + (risk_amt * reward_ratio))
-
+            # --- PENENTUAN SINYAL ---
             status = ""
             priority = 0
 
-            # STATUS MARKET
-            if current_close > breakout_level:
+            if signal_close > breakout_level:
                 status = "🚀 BREAKOUT"
                 priority = 1
-                diff = ((current_close - breakout_level) / breakout_level) * 100
-            elif current_close > red_line:
-                diff_alli = ((current_close - red_line) / current_close) * 100
+                diff = ((signal_close - breakout_level) / breakout_level) * 100
+            elif signal_close > red_line:
+                diff_alli = ((signal_close - red_line) / signal_close) * 100
                 if diff_alli <= risk_pct:
                     status = "🟢 EARLY TREND"
                     priority = 2
@@ -119,20 +116,46 @@ def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio):
             else:
                 status = "🔴 DOWN"
                 priority = 4
-                diff = ((red_line - current_close) / current_close) * 100
+                diff = 0
 
+            # --- HITUNG HASIL (EFEKTIVITAS) ---
+            performance_label = "⏳ MENUNGGU"
+            perf_val = 0
+            
+            if days_back > 0 and "DOWN" not in status:
+                # Hitung selisih harga Hari Ini vs Harga Sinyal Dulu
+                change_pct = ((real_current_price - signal_close) / signal_close) * 100
+                perf_val = change_pct
+                if change_pct > 0:
+                    performance_label = f"✅ WIN +{change_pct:.1f}%"
+                else:
+                    performance_label = f"❌ LOSS {change_pct:.1f}%"
+            elif days_back == 0:
+                performance_label = "🆕 HARI INI"
+
+            # Syariah Check
+            label_syariah = "⛔ NON" if ticker_clean in non_syariah_list else "✅ SYARIAH"
+
+            # Plan
+            stop_loss = int(red_line)
+            risk_amt = signal_close - stop_loss
+            take_profit = int(signal_close + (risk_amt * reward_ratio))
+            
             tv_link = f"https://www.tradingview.com/chart/?symbol=IDX:{ticker_clean}"
 
             results.append({
                 "Emiten": ticker_clean,
-                "Jenis": label_syariah,       # Kolom Baru
+                "Jenis": label_syariah,
                 "Status": status,
-                "Buy": int(current_close),
+                "Buy (Dulu)": int(signal_close),
+                "Harga (Kini)": int(real_current_price) if days_back > 0 else "-",
+                "Hasil": performance_label, # Kolom Baru
                 "SL": stop_loss,
                 "TP": take_profit,
                 "Risk%": round(diff, 1),
                 "Chart": tv_link,
-                "Priority": priority
+                "Priority": priority,
+                "PerfVal": perf_val
             })
 
         except: continue
@@ -143,24 +166,38 @@ def scan_market(min_val_m, risk_pct, turtle_window, reward_ratio):
     
     df_res = pd.DataFrame(results)
     if not df_res.empty:
-        df_res = df_res.sort_values(by=["Priority", "Risk%"], ascending=[True, True])
+        # Urutkan berdasarkan Win Rate tertinggi jika Backtest
+        if days_back > 0:
+            df_res = df_res.sort_values(by=["PerfVal"], ascending=False)
+        else:
+            df_res = df_res.sort_values(by=["Priority", "Risk%"], ascending=[True, True])
     
     return df_res
 
-# --- 5. TAMPILAN TABEL ---
-if st.button("🔍 SCAN TRADING PLAN"):
-    with st.spinner('Menghitung target harga...'):
-        waktu_skrg = datetime.now(pytz.timezone('Asia/Jakarta')).strftime("%H:%M WIB")
-        df = scan_market(min_trans, risk_tol, turtle_day, rr_ratio)
+# --- 5. TAMPILAN UTAMA ---
+btn_label = "🔍 SCAN HARI INI" if st.session_state.get('days_back', 0) == 0 else f"⏮️ CEK {st.session_state.get('days_back', 0)} HARI LALU"
+if st.button(f"RUN SCANNER ({'HARI INI' if backtest_days==0 else f'MUNDUR {backtest_days} HARI'})"):
+    
+    # Keterangan Tanggal
+    tgl_skrg = datetime.now(pytz.timezone('Asia/Jakarta'))
+    tgl_sinyal = tgl_skrg - timedelta(days=backtest_days)
+    
+    if backtest_days > 0:
+        st.warning(f"🕒 **MODE BACKTEST:** Menampilkan sinyal tanggal **{tgl_sinyal.strftime('%d %B %Y')}** dan hasilnya hari ini.")
+    else:
+        st.success(f"📅 **MODE LIVE:** Data Pasar Real-time **{tgl_skrg.strftime('%d %B %Y')}**")
+
+    with st.spinner('Menjalankan simulasi...'):
+        df = scan_market(min_trans, risk_tol, turtle_day, rr_ratio, backtest_days)
         
         if not df.empty:
-            st.success(f"✅ Update: {waktu_skrg}")
-            
+            # Konfigurasi Kolom
             column_config = {
                 "Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka"),
-                "Buy": st.column_config.NumberColumn("Harga Buy", format="Rp %d"),
+                "Buy (Dulu)": st.column_config.NumberColumn("Harga Sinyal", format="Rp %d"),
+                "Harga (Kini)": st.column_config.NumberColumn("Harga Skrg", format="Rp %d"),
                 "SL": st.column_config.NumberColumn("Stop Loss", format="Rp %d"),
-                "TP": st.column_config.NumberColumn("Take Profit", format="Rp %d"),
+                "TP": st.column_config.NumberColumn("Target", format="Rp %d"),
                 "Risk%": st.column_config.NumberColumn("Jarak SL", format="%.1f %%"),
             }
 
@@ -168,37 +205,20 @@ if st.button("🔍 SCAN TRADING PLAN"):
             df_buy = df[df['Status'].str.contains("BREAKOUT|EARLY")]
             
             if not df_buy.empty:
-                st.subheader("🔥 REKOMENDASI PLAN")
+                st.subheader("📊 HASIL ANALISA EFEKTIVITAS")
                 
-                styled_df = (df_buy.drop(columns=['Priority']).style
-                    .format({"Buy": "{:.0f}", "SL": "{:.0f}", "TP": "{:.0f}", "Risk%": "{:.1f}"})
+                styled_df = (df_buy.drop(columns=['Priority', 'PerfVal']).style
+                    .format({"Buy (Dulu)": "{:.0f}", "SL": "{:.0f}", "TP": "{:.0f}", "Risk%": "{:.1f}"})
                     .set_properties(**{'text-align': 'center'}) 
                     .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
                     .background_gradient(subset=['Risk%'], cmap="Greens")
                     .applymap(lambda x: 'color: red; font-weight: bold;', subset=['SL'])
-                    .applymap(lambda x: 'color: green; font-weight: bold;', subset=['TP'])
-                    # Warna khusus kolom Jenis (Merah jika NON, Hijau jika SYARIAH)
-                    .applymap(lambda x: 'color: red; font-weight: bold;' if 'NON' in str(x) else 'color: green;', subset=['Jenis'])
+                    # Warnai Hasil: Hijau jika WIN, Merah jika LOSS
+                    .applymap(lambda x: 'background-color: #d4edda; color: green; font-weight: bold;' if 'WIN' in str(x) else ('background-color: #f8d7da; color: red; font-weight: bold;' if 'LOSS' in str(x) else ''), subset=['Hasil'])
                 )
 
-                st.dataframe(
-                    styled_df,
-                    column_config=column_config,
-                    use_container_width=True,
-                    hide_index=True
-                )
+                st.dataframe(styled_df, column_config=column_config, use_container_width=True, hide_index=True)
             else:
-                st.info("Belum ada sinyal Buy yang aman saat ini.")
-
-            # Tabel Extended
-            df_ext = df[df['Status'].str.contains("EXTENDED")]
-            if not df_ext.empty:
-                with st.expander("⚠️ Saham Extended (Tunggu Koreksi)"):
-                    st.dataframe(
-                        df_ext.drop(columns=['Priority']).style.set_properties(**{'text-align': 'center'}),
-                        column_config=column_config,
-                        use_container_width=True,
-                        hide_index=True
-                    )
+                st.info("Tidak ada sinyal Buy pada tanggal tersebut.")
         else:
             st.error("Data tidak ditemukan.")
