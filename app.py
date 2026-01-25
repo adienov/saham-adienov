@@ -5,27 +5,15 @@ import pandas_ta as ta
 import numpy as np
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V61", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System V60", layout="wide", initial_sidebar_state="expanded")
 
-# CSS: Styling Proporsional
-st.markdown("""
-    <style>
-        .stApp { background-color: #FFFFFF; color: #000000; }
-        h1 { font-size: 1.8rem !important; padding-top: 10px !important; color: #004085; }
-        div[data-testid="stMetricValue"] { font-size: 1.4rem !important; }
-        div.stButton > button { border-radius: 8px; background-color: #007BFF; color: white !important; font-weight: bold; height: 3rem; }
-    </style>
-""", unsafe_allow_html=True)
+# --- 2. HEADER & GLOBAL MARKET DASHBOARD (OTOMATIS TAMPIL) ---
+st.title("📱 Noris Trading System V60")
 
-# --- 2. HEADER DENGAN IKON GRAFIK V-SHAPE ---
-# Menggunakan ikon grafik naik untuk melambangkan struktur Higher High & Higher Low
-st.title("📈 Noris Trading System V61") 
-st.caption("Market Structure: Higher High (HH) & Higher Low (HL) | Minervini Stage 2 Strategy")
-
-# --- 3. GLOBAL MARKET DASHBOARD (OTOMATIS TAMPIL) ---
 def display_global_indices():
     st.markdown("### 🌎 GLOBAL MARKET MONITOR")
     
+    # Daftar Indeks Global + IHSG
     indices = {
         "IHSG (JKSE)": "^JKSE",
         "S&P 500 (US)": "^GSPC",
@@ -59,9 +47,10 @@ def display_global_indices():
             cols[i].error(f"Error {name}")
     st.divider()
 
+# Langsung tampilkan saat website dibuka
 display_global_indices()
 
-# --- 4. SIDEBAR PARAMETER ---
+# --- 3. SIDEBAR PARAMETER ---
 st.sidebar.title("⚙️ Parameter")
 input_mode = st.sidebar.radio("Sumber Saham:", ["LQ45 (Bluechip)", "Kompas100 (Market Wide)", "Input Manual"])
 min_rs = st.sidebar.slider("Min. RS Rating", 0, 99, 70)
@@ -69,7 +58,7 @@ modal_jt = st.sidebar.number_input("Modal (Juta Rp)", value=100, step=10)
 risk_pct = st.sidebar.slider("Resiko per Trade (%)", 0.5, 5.0, 2.0)
 ext_mult = st.sidebar.slider("Multiplier Extended", 0.1, 1.0, 0.5)
 
-# --- 5. ENGINE SCANNER ---
+# --- 4. ENGINE SCANNER ---
 @st.cache_data(ttl=300)
 def scan_market(ticker_list, modal_jt, risk_pct_trade, ext_mult, min_rs):
     results = []
@@ -90,7 +79,7 @@ def scan_market(ticker_list, modal_jt, risk_pct_trade, ext_mult, min_rs):
             ma50, ma150, ma200 = df['Close'].rolling(50).mean().iloc[-1], df['Close'].rolling(150).mean().iloc[-1], df['Close'].rolling(200).mean().iloc[-1]
             rs_rating = int(rs_map.get(ticker, 0.5) * 99)
             
-            # Stage 2 Filter (Alignment MA melambangkan HH HL)
+            # Stage 2 Filter
             if close > ma150 and ma150 > ma200 and close > ma50 and rs_rating >= min_rs:
                 red_line = ta.sma((df['High']+df['Low'])/2, 8).iloc[-1]
                 if close > red_line:
@@ -108,14 +97,16 @@ def scan_market(ticker_list, modal_jt, risk_pct_trade, ext_mult, min_rs):
         except: continue
     return pd.DataFrame(results).sort_values("RS", ascending=False) if results else pd.DataFrame()
 
-# --- 6. EKSEKUSI SCANNER ---
+# --- 5. EKSEKUSI SCANNER ---
 if st.button("🚀 JALANKAN SCANNER MINERVINI"):
-    # (Daftar ticker otomatis sesuai pilihan sidebar)
+    # Penentuan Tickers
     lq45 = ["ANTM.JK", "BRIS.JK", "TLKM.JK", "ASII.JK", "ADRO.JK", "PGAS.JK", "BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK"]
-    tickers = lq45 # Contoh sederhana
+    tickers = lq45 if input_mode == "LQ45 (Bluechip)" else lq45 # Sederhanakan utk contoh
     
     df_res = scan_market(tickers, modal_jt, risk_pct, ext_mult, min_rs)
     
     if not df_res.empty:
         st.subheader("📋 HASIL SCANNER SAHAM LOLOS KRITERIA")
         st.dataframe(df_res, column_config={"Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka")}, use_container_width=True, hide_index=True)
+    else:
+        st.warning("Belum ada saham yang memenuhi kriteria Stage 2.")
