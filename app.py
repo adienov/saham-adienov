@@ -114,4 +114,4 @@ if st.button("🚀 SCAN MINERVINI MARKET"):
         
         st.divider()
         st.subheader("📋 HASIL SCANNER LENGKAP")
-        st.dataframe(df_res, column_config={"Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka")}, use_container_width=True, hide_index=True)fff
+        st.dataframe(df_res, column_config={"Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka")}, use_container_width=True, hide_index=True)
