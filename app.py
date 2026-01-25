@@ -5,19 +5,9 @@ import pandas_ta as ta
 import numpy as np
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V57", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System V58", layout="wide", initial_sidebar_state="expanded")
 
-# CSS: Styling Unified
-st.markdown("""
-    <style>
-        .stApp { background-color: #FFFFFF; color: #000000; }
-        h1 { font-size: 1.6rem !important; padding-top: 5px !important; color: #004085; }
-        div.stButton > button { border-radius: 8px; background-color: #007BFF; color: white !important; font-weight: bold; height: 3rem; }
-        div[data-testid="stDataFrame"] th { background-color: #f1f3f5; font-size: 0.85rem !important; text-align: center !important; }
-    </style>
-""", unsafe_allow_html=True)
-
-# --- 2. SIDEBAR (PARAMETER LENGKAP - KEMBALI) ---
+# --- 2. SIDEBAR PARAMETER (LENGKAP) ---
 st.sidebar.title("⚙️ Parameter")
 st.sidebar.subheader("1. Daftar Saham")
 input_mode = st.sidebar.radio("Sumber:", ["LQ45 (Bluechip)", "Kompas100 (Market Wide)", "Input Manual"])
@@ -28,13 +18,13 @@ kompas100_tickers = list(set(lq45_tickers + ["ITMG.JK", "TINS.JK", "ENRG.JK", "I
 if input_mode == "LQ45 (Bluechip)": tickers = lq45_tickers
 elif input_mode == "Kompas100 (Market Wide)": tickers = kompas100_tickers
 else:
-    user_input = st.sidebar.text_area("Kode Saham (Pisah Koma):", value="BREN, AMMN, CUAN, GOTO, BBRI")
+    user_input = st.sidebar.text_area("Kode Saham (Koma):", value="BREN, AMMN, CUAN, GOTO, BBRI")
     tickers = [f"{x.strip().upper()}.JK" for x in user_input.split(',') if x.strip()]
 
 st.sidebar.divider()
 st.sidebar.subheader("2. Filter Minervini")
 min_rs_rating = st.sidebar.slider("Min. RS Rating", 0, 99, 70)
-chart_duration = st.sidebar.selectbox("Durasi Chart", ["3mo", "6mo", "1y"], index=1)
+chart_duration = st.sidebar.selectbox("Durasi Chart", ["3mo", "6mo", "1y"], index=2) # Default 1y sesuai V57
 
 st.sidebar.divider()
 st.sidebar.subheader("3. Money Management")
@@ -42,11 +32,10 @@ modal_juta = st.sidebar.number_input("Modal (Juta Rp)", value=100, step=10)
 risk_per_trade_pct = st.sidebar.slider("Resiko per Trade (%)", 0.5, 5.0, 2.0)
 extended_multiplier = st.sidebar.slider("Multiplier Extended", 0.1, 1.0, 0.5)
 min_trans = st.sidebar.number_input("Min. Transaksi (Miliar)", value=2.0, step=0.5)
-non_syariah_list = ["BBCA", "BBRI", "BMRI", "BBNI", "BBTN", "BDMN", "BNGA", "NISP", "GGRM", "HMSP", "WIIM", "RMBA", "MAYA", "NOBU", "ARTO"]
 
-# --- 3. ENGINE SCANNER (PASTIKAN FUNGSI INI ADA) ---
+# --- 3. ENGINE SCANNER ---
 @st.cache_data(ttl=300)
-def scan_market(ticker_list, min_val_m, risk_pct_param, modal_jt, risk_pct_trade, ext_mult, min_rs):
+def scan_market(ticker_list, min_val_m, modal_jt, risk_pct_trade, ext_mult, min_rs):
     results = []
     selected_tickers = []
     modal_rupiah = modal_jt * 1_000_000
@@ -81,24 +70,21 @@ def scan_market(ticker_list, min_val_m, risk_pct_param, modal_jt, risk_pct_trade
                     results.append({
                         "Emiten": ticker.replace(".JK",""), "RS": rs_rating, "Rating": "⭐"*max(1, vcp_score), 
                         "Status": "🟣 VOL SPIKE" if vol_ratio > 2 else "🚀 BREAKOUT" if close > df['High'].rolling(20).max().shift(1).iloc[-1] else "🟢 REVERSAL",
-                        "Buy": int(close), "SL": sl, "TP": int(close + risk_share*1.5), "Max Lot": max_lot, "Risk": f"{dist_to_red:.1f}%", "ScoreRaw": vcp_score
+                        "Buy": int(close), "SL": sl, "TP": int(close + risk_share*1.5), "Max Lot": max_lot, "Risk": f"{dist_to_red:.1f}%", "ScoreRaw": vcp_score,
+                        "Chart": f"https://www.tradingview.com/chart/?symbol=IDX:{ticker.replace('.JK','')}"
                     })
                     selected_tickers.append(ticker)
         except: continue
     return pd.DataFrame(results).sort_values(by=["ScoreRaw", "RS"], ascending=False) if results else pd.DataFrame(), selected_tickers
 
 # --- 4. TAMPILAN UTAMA ---
-st.title("📱 Noris Trading System V57")
+st.title("📱 Noris Trading System V58")
 
-with st.expander("📖 PANDUAN STRATEGI MINERVINI & VCP (Klik Membaca)"):
-    st.markdown("""
-    1. **Filter Stage 2:** Sistem hanya menampilkan saham *Uptrend* kuat (Lolos 8 syarat Minervini).
-    2. **Cek IHSG Index:** Pastikan tren pasar (Kotak Pertama) sedang menanjak.
-    3. **Pilih Bintang Terbanyak:** Fokus pada saham dengan rating ⭐⭐⭐⭐⭐.
-    """)
+with st.expander("📖 PANDUAN STRATEGI"):
+    st.markdown("1. **Stage 2 Filter**: Cek syarat Minervini.\n2. **IHSG**: Pastikan Bullish.\n3. **Rating**: Fokus ⭐⭐⭐⭐⭐.")
 
 if st.button("🚀 SCAN MINERVINI MARKET"):
-    df, sel_tickers = scan_market(tickers, min_trans, risk_per_trade_pct, modal_juta, risk_per_trade_pct, extended_multiplier, min_rs_rating)
+    df, sel_tickers = scan_market(tickers, min_trans, modal_juta, risk_per_trade_pct, extended_multiplier, min_rs_rating)
     if not df.empty:
         st.markdown("### 🔍 MARKET CORRELATION (Unified View)")
         cols = st.columns(4)
@@ -111,7 +97,19 @@ if st.button("🚀 SCAN MINERVINI MARKET"):
                 st.markdown(f"**{row.Emiten}** {row.Rating}")
                 s_data = yf.Ticker(f"{row.Emiten}.JK").history(period=chart_duration)['Close']
                 st.area_chart((s_data/s_data.iloc[0]-1)*100, height=120, color="#2962FF")
+        
         st.divider()
         st.subheader("📋 HASIL SCANNER LENGKAP")
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        
+        # --- KONFIGURASI KOLOM TERMASUK LINK CHART ---
+        column_config = {
+            "Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka"),
+            "RS": st.column_config.NumberColumn("RS Rating"),
+            "Buy": st.column_config.NumberColumn("Price"),
+            "Max Lot": st.column_config.NumberColumn("Lot")
+        }
+        
+        # Filter tampilan kolom agar rapi
+        show_cols = ["Emiten", "RS", "Rating", "Status", "Buy", "SL", "TP", "Max Lot", "Risk", "ScoreRaw", "Chart"]
+        st.dataframe(df[show_cols], column_config=column_config, use_container_width=True, hide_index=True)
     else: st.warning("Tidak ada saham lolos kriteria.")
