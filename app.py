@@ -5,13 +5,14 @@ import pandas_ta as ta
 import numpy as np
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V58", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System V59", layout="wide", initial_sidebar_state="expanded")
 
 # --- 2. SIDEBAR PARAMETER (LENGKAP) ---
 st.sidebar.title("⚙️ Parameter")
 st.sidebar.subheader("1. Daftar Saham")
 input_mode = st.sidebar.radio("Sumber:", ["LQ45 (Bluechip)", "Kompas100 (Market Wide)", "Input Manual"])
 
+# ... (Daftar ticker LQ45 & Kompas100 tetap sama) ...
 lq45_tickers = ["ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "ASII.JK", "ADRO.JK", "PTBA.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "SIDO.JK", "MDKA.JK", "INCO.JK", "MBMA.JK", "AMRT.JK", "ACES.JK", "HRUM.JK", "AKRA.JK", "MEDC.JK", "ELSA.JK", "BRMS.JK", "DEWA.JK", "BUMI.JK", "UNVR.JK", "MYOR.JK", "CPIN.JK", "JPFA.JK", "SMGR.JK", "INTP.JK", "TPIA.JK", "BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "GOTO.JK"]
 kompas100_tickers = list(set(lq45_tickers + ["ITMG.JK", "TINS.JK", "ENRG.JK", "INDY.JK", "BREN.JK", "CUAN.JK", "AMMN.JK", "ADMR.JK", "TOWR.JK", "TBIG.JK", "BUKA.JK", "EMTK.JK", "SCMA.JK", "GGRM.JK", "HMSP.JK", "MAPI.JK", "CTRA.JK", "BSDE.JK", "PWON.JK", "SMRA.JK", "ASRI.JK", "JSMR.JK", "PTPP.JK", "WIKA.JK", "ADHI.JK", "INKP.JK", "TKIM.JK", "ESSA.JK", "AUTO.JK", "GJTL.JK", "MAPA.JK", "ERAA.JK"]))
 
@@ -24,7 +25,7 @@ else:
 st.sidebar.divider()
 st.sidebar.subheader("2. Filter Minervini")
 min_rs_rating = st.sidebar.slider("Min. RS Rating", 0, 99, 70)
-chart_duration = st.sidebar.selectbox("Durasi Chart", ["3mo", "6mo", "1y"], index=2) # Default 1y sesuai V57
+chart_duration = st.sidebar.selectbox("Durasi Chart", ["3mo", "6mo", "1y"], index=1)
 
 st.sidebar.divider()
 st.sidebar.subheader("3. Money Management")
@@ -78,19 +79,30 @@ def scan_market(ticker_list, min_val_m, modal_jt, risk_pct_trade, ext_mult, min_
     return pd.DataFrame(results).sort_values(by=["ScoreRaw", "RS"], ascending=False) if results else pd.DataFrame(), selected_tickers
 
 # --- 4. TAMPILAN UTAMA ---
-st.title("📱 Noris Trading System V58")
-
-with st.expander("📖 PANDUAN STRATEGI"):
-    st.markdown("1. **Stage 2 Filter**: Cek syarat Minervini.\n2. **IHSG**: Pastikan Bullish.\n3. **Rating**: Fokus ⭐⭐⭐⭐⭐.")
+st.title("📱 Noris Trading System V59")
 
 if st.button("🚀 SCAN MINERVINI MARKET"):
     df, sel_tickers = scan_market(tickers, min_trans, modal_juta, risk_per_trade_pct, extended_multiplier, min_rs_rating)
     if not df.empty:
-        st.markdown("### 🔍 MARKET CORRELATION (Unified View)")
+        # --- HEADER MARKET CORRELATION DENGAN STATUS ---
+        st.markdown("### 🔍 MARKET CORRELATION")
+        
+        # Ambil Data IHSG untuk Status
+        ihsg_ticker = yf.Ticker("^JKSE")
+        ihsg_hist = ihsg_ticker.history(period="1y")
+        curr_ihsg = ihsg_hist['Close'].iloc[-1]
+        ma20_ihsg = ihsg_hist['Close'].rolling(20).mean().iloc[-1]
+        is_bullish = curr_ihsg > ma20_ihsg
+        mkt_status = "🟢 BULLISH" if is_bullish else "🔴 BEARISH"
+        mkt_color = "green" if is_bullish else "red"
+
+        # Tampilkan Status di sebelah Judul (Gunakan Header Kecil)
+        st.markdown(f"**Current Market Status: <span style='color:{mkt_color}; font-size:1.5rem;'>{mkt_status}</span>**", unsafe_allow_html=True)
+        
         cols = st.columns(4)
         with cols[0]:
             st.markdown("**IHSG INDEX**")
-            ihsg_data = yf.Ticker("^JKSE").history(period=chart_duration)['Close']
+            ihsg_data = ihsg_hist['Close'].tail(120 if chart_duration == "6mo" else (60 if chart_duration == "3mo" else 250))
             st.area_chart((ihsg_data/ihsg_data.iloc[0]-1)*100, height=120, color="#2962FF")
         for idx, row in enumerate(df.head(3).itertuples()):
             with cols[idx+1]:
@@ -100,16 +112,6 @@ if st.button("🚀 SCAN MINERVINI MARKET"):
         
         st.divider()
         st.subheader("📋 HASIL SCANNER LENGKAP")
-        
-        # --- KONFIGURASI KOLOM TERMASUK LINK CHART ---
-        column_config = {
-            "Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka"),
-            "RS": st.column_config.NumberColumn("RS Rating"),
-            "Buy": st.column_config.NumberColumn("Price"),
-            "Max Lot": st.column_config.NumberColumn("Lot")
-        }
-        
-        # Filter tampilan kolom agar rapi
-        show_cols = ["Emiten", "RS", "Rating", "Status", "Buy", "SL", "TP", "Max Lot", "Risk", "ScoreRaw", "Chart"]
-        st.dataframe(df[show_cols], column_config=column_config, use_container_width=True, hide_index=True)
+        column_config = {"Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka")}
+        st.dataframe(df, column_config=column_config, use_container_width=True, hide_index=True)
     else: st.warning("Tidak ada saham lolos kriteria.")
