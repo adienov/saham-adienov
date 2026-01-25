@@ -7,7 +7,7 @@ import pytz
 import numpy as np
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V43 (Minervini)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System V44", layout="wide", initial_sidebar_state="expanded")
 
 # CSS: Styling
 st.markdown("""
@@ -23,8 +23,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER ---
-st.title("📱 Noris Trading System V43")
-st.caption("Minervini Edition: Trend Template (Stage 2) & VCP Logic")
+st.title("📱 Noris Trading System V44")
+st.caption("Visual Screener: Minervini Trend Template & VCP Pattern Preview")
 
 # --- BAROMETER IHSG ---
 def get_ihsg_status():
@@ -39,25 +39,6 @@ def get_ihsg_status():
 
 ihsg_stat, ihsg_advice, ihsg_col = get_ihsg_status()
 st.info(f"**STATUS IHSG:** {ihsg_stat} | {ihsg_advice}")
-
-# --- FUNGSI CHART ---
-def get_performance_history(tickers_list):
-    try:
-        ihsg = yf.download("^JKSE", period="6mo", progress=False)
-        if isinstance(ihsg.columns, pd.MultiIndex): ihsg = ihsg.xs("^JKSE", level=1, axis=1)
-        ihsg_pct = (ihsg['Close'] / ihsg['Close'].iloc[0] - 1) * 100
-        ihsg_pct.name = "IHSG"
-        
-        top_tickers = tickers_list[:5]
-        data = yf.download(top_tickers, period="6mo", progress=False)['Close']
-        if isinstance(data, pd.Series):
-            sys_curve = (data / data.iloc[0] - 1) * 100
-        else:
-            sys_curve = (data.mean(axis=1) / data.mean(axis=1).iloc[0] - 1) * 100
-        sys_curve.name = "NORIS (Stage 2)"
-        
-        return pd.concat([sys_curve, ihsg_pct], axis=1).dropna()
-    except: return None
 
 # --- EXPANDER KAMUS ---
 with st.expander("📖 KAMUS MINERVINI (Klik Disini)"):
@@ -75,7 +56,8 @@ with st.expander("📖 KAMUS MINERVINI (Klik Disini)"):
     
     ### 🚦 Trigger Beli (VCP Breakout)
     * **🚀 BREAKOUT:** Harga menembus resisten.
-    * **🟢 REVERSAL:** Awal pembalikan arah dalam tren naik.
+    * **🟣 VOL SPIKE:** Volume meledak (Akumulasi).
+    * **🟢 REVERSAL:** Awal pembalikan arah.
     """)
 
 # --- 3. SIDEBAR ---
@@ -114,39 +96,34 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
     modal_rupiah = modal_jt * 1_000_000
     risk_money_rupiah = modal_rupiah * (risk_pct_trade / 100)
 
-    # 1. Hitung Relative Strength (RS) untuk semua saham dulu
-    # Kita bandingkan performa 1 tahun terakhir
+    # 1. Hitung Relative Strength (RS)
     rs_scores = {}
     try:
         data_batch = yf.download(ticker_list, period="1y", progress=False)['Close']
         for t in ticker_list:
             try:
-                # Rumus RS Sederhana: ((C - C_1y) / C_1y) * 0.4 + ((C - C_3m) / C_3m) * 0.2 + ...
-                # Versi simple: 1 Year Performance
                 series = data_batch[t] if isinstance(data_batch, pd.DataFrame) else data_batch
                 perf = (series.iloc[-1] - series.iloc[0]) / series.iloc[0]
                 rs_scores[t] = perf
             except: rs_scores[t] = -999
             
-        # Ranking RS (Percentile 1-99)
         rs_df = pd.DataFrame(list(rs_scores.items()), columns=['Ticker', 'Perf'])
         rs_df['Rank'] = rs_df['Perf'].rank(pct=True) * 99
         rs_map = rs_df.set_index('Ticker')['Rank'].to_dict()
     except:
-        rs_map = {t: 50 for t in ticker_list} # Fallback
+        rs_map = {t: 50 for t in ticker_list} 
 
     for i, ticker in enumerate(ticker_list):
         ticker_clean = ticker.replace(".JK", "")
         text_progress.text(f"Menganalisa {ticker_clean}... ({i+1}/{total})")
         
         try:
-            # Ambil data minimal 2 tahun (500 bar) untuk MA200 yang akurat
             ticker_obj = yf.Ticker(ticker)
             df = ticker_obj.history(period="2y")
             
             if df.empty or len(df) < 260: continue
 
-            # --- MINERVINI CALCULATIONS ---
+            # Minervini Rules
             close = df['Close'].iloc[-1]
             ma50 = df['Close'].rolling(window=50).mean().iloc[-1]
             ma150 = df['Close'].rolling(window=150).mean().iloc[-1]
@@ -159,37 +136,24 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
             rs_rating = int(rs_map.get(ticker, 50))
 
             # --- TREND TEMPLATE RULES (8 Syarat) ---
-            # 1. Harga > MA 150 & MA 200
             c1 = close > ma150 and close > ma200
-            # 2. MA 150 > MA 200
             c2 = ma150 > ma200
-            # 3. MA 200 Uptrend (Harga sekarang > Harga 1 bulan lalu)
             c3 = ma200 > ma200_20ago
-            # 4. MA 50 > MA 150 & MA 200
             c4 = ma50 > ma150 and ma50 > ma200
-            # 5. Harga > MA 50
             c5 = close > ma50
-            # 6. Harga > 30% di atas Low 52 Minggu (Minervini bilang 25-30%)
             c6 = close >= (low_52w * 1.25)
-            # 7. Harga dalam jangkauan 25% dari High 52 Minggu (Dekat Pucuk)
             c7 = close >= (high_52w * 0.75) 
-            # 8. RS Rating >= 70 (Kita longgarkan ke 60 agar tidak terlalu ketat di IHSG)
             c8 = rs_rating >= 60
 
-            # Cek Kelulusan Stage 2
             is_stage2 = c1 and c2 and c3 and c4 and c5 and c6 and c7 and c8
             
-            # --- LOGIKA TRIGGER (V41) ---
-            # Hanya proses sinyal jika Lulus Stage 2
+            # --- LOGIKA TRIGGER ---
             status = "🔴 WAIT"
             priority = 5
             
-            # Indikator Tambahan
             hl2 = (df['High'] + df['Low']) / 2
-            red_line = ta.sma(hl2, 8).iloc[-1] # Alligator Teeth
-            
+            red_line = ta.sma(hl2, 8).iloc[-1] 
             breakout_level = df['High'].rolling(window=20).max().shift(1).iloc[-1]
-            prev_high = df['High'].iloc[-2]
             
             avg_vol = (close * df['Volume'].mean()) / 1e9
             if avg_vol < min_val_m: continue
@@ -200,7 +164,6 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
             dist_to_red = ((close - red_line) / close) * 100
             is_extended = dist_to_red > 5.0
 
-            # Keputusan Akhir
             if is_stage2: # WAJIB STAGE 2
                 if close > red_line:
                     risk_mult = 1.0
@@ -216,7 +179,6 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
                     
                     if is_extended: risk_mult = ext_mult
                     
-                    # Hitung Lot
                     sl = int(red_line)
                     risk_share = close - sl
                     max_lot = 0
@@ -232,7 +194,7 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
 
                     results.append({
                         "Emiten": ticker_clean,
-                        "RS": rs_rating, # Tampilkan RS Rating
+                        "RS": rs_rating, 
                         "Jenis": label_syariah,
                         "Status": display_stat,
                         "Buy": int(close),
@@ -264,15 +226,29 @@ if st.button("🔍 SCAN MINERVINI TEMPLATE"):
         df, sel_tickers = scan_market(tickers, min_trans, risk_per_trade_pct, modal_juta, risk_per_trade_pct, extended_multiplier)
         
         if not df.empty:
-            st.subheader("🏆 SAHAM LOLOS KRITERIA MINERVINI (STAGE 2)")
-            st.caption("Hanya saham yang berada dalam FASE UPTREND KUAT yang ditampilkan.")
             
-            # Chart Performa
-            chart_df = get_performance_history(sel_tickers)
-            if chart_df is not None:
-                st.line_chart(chart_df, color=["#00FF00", "#FF0000"]) 
+            # --- BAGIAN VISUAL CHART (VCP PREVIEW) ---
+            st.markdown("### 🔍 VCP PATTERN PREVIEW (Top 4 Stocks)")
+            st.caption("Lihat sekilas apakah pola chart membentuk kontraksi (tenang sebelum badai)?")
+            
+            top_4 = sel_tickers[:4] # Ambil 4 teratas
+            if top_4:
+                cols = st.columns(len(top_4))
+                for idx, t in enumerate(top_4):
+                    with cols[idx]:
+                        try:
+                            # Ambil data 6 bulan terakhir utk pattern view
+                            mini_chart_data = yf.download(t, period="6mo", progress=False)['Close']
+                            st.subheader(t.replace(".JK", ""))
+                            # Tampilkan Line Chart Minimalis
+                            st.line_chart(mini_chart_data, height=150)
+                        except:
+                            st.error("No Data")
+            
+            st.divider()
 
-            # Tabel Hasil
+            # --- TABEL HASIL ---
+            st.subheader("📋 HASIL SCANNER LENGKAP")
             column_config = {
                 "Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka"),
                 "Buy": st.column_config.NumberColumn("Harga Buy", format="Rp %d"),
@@ -292,4 +268,4 @@ if st.button("🔍 SCAN MINERVINI TEMPLATE"):
             )
             st.dataframe(styled_df, column_config=column_config, use_container_width=True, hide_index=True)
         else:
-            st.warning("Tidak ada saham yang lolos kriteria 'Minervini Stage 2' hari ini. Pasar mungkin sedang Bearish/Sideways.")
+            st.warning("Tidak ada saham yang lolos kriteria 'Minervini Stage 2' hari ini.")
