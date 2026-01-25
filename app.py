@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import pytz
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V31", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System V41", layout="wide", initial_sidebar_state="expanded")
 
 # CSS: Styling
 st.markdown("""
@@ -23,8 +23,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER ---
-st.title("📱 Noris Trading System V31")
-st.caption("Market Wide Edition: LQ45 • Kompas100 • Custom Input")
+st.title("📱 Noris Trading System V41")
+st.caption("Sync Edition: Matching TradingView V40 Logic (Reversal/Breakout)")
 
 # --- BAROMETER IHSG ---
 def get_ihsg_status():
@@ -33,8 +33,8 @@ def get_ihsg_status():
         if isinstance(ihsg.columns, pd.MultiIndex): ihsg = ihsg.xs("^JKSE", level=1, axis=1)
         current_price = ihsg['Close'].iloc[-1]
         ma20 = ihsg['Close'].rolling(window=20).mean().iloc[-1]
-        if current_price > ma20: return "🟢 BULLISH", "Market Aman. Gaspol!", "normal"
-        else: return "🔴 BEARISH", "Kurangi Lot. Cash is King.", "inverse"
+        if current_price > ma20: return "🟢 BULLISH", "Market Aman.", "normal"
+        else: return "🔴 BEARISH", "Hati-hati.", "inverse"
     except: return "OFFLINE", "No Data", "off"
 
 ihsg_stat, ihsg_advice, ihsg_col = get_ihsg_status()
@@ -53,7 +53,6 @@ def get_performance_history(tickers_list, days_back):
     if not tickers_list: return None
         
     try:
-        # Batasi maksimal 5 saham teratas untuk grafik agar tidak berat
         top_tickers = tickers_list[:5]
         data = yf.download(top_tickers, period="1y", progress=False)['Close']
         data_cut = data.iloc[-(days_back+1):]
@@ -63,7 +62,7 @@ def get_performance_history(tickers_list, days_back):
         else:
             normalized_stocks = (data_cut / data_cut.iloc[0] - 1) * 100
             system_curve = normalized_stocks.mean(axis=1)
-        system_curve.name = "NORIS SYSTEM (Top Picks)"
+        system_curve.name = "NORIS SYSTEM"
         chart_df = pd.concat([system_curve, ihsg_pct], axis=1).dropna()
         return chart_df
     except: return None
@@ -71,51 +70,27 @@ def get_performance_history(tickers_list, days_back):
 # --- EXPANDER KAMUS ---
 with st.expander("📖 KAMUS & CARA BACA (Klik Disini)"):
     st.markdown("""
-    ### 🚦 Sinyal Teknikal
+    ### 🚦 Status Sinyal (Sesuai TV V40)
+    * **🟣 VOL SPIKE:** Bandar Masuk (Volume > 2x Rata-rata). Sinyal Kuat!
     * **🚀 BREAKOUT:** Harga jebol Highest High 20 Hari.
-    * **🔥 FOLLOW UP:** Harga jebol High Kemarin.
-    * **🟢 EARLY TREND:** Harga > Garis Merah (Alligator).
+    * **🟢 REVERSAL:** Harga mulai bangkit di atas Garis Merah (Trend Awal).
+    
+    ### ⚠️ Risk Warning
+    * **EXTENDED:** Jika jarak harga ke Stop Loss > 5%, Lot akan otomatis dikurangi (Safety Mode).
     """)
 
 # --- 3. SIDEBAR (INPUT) ---
 st.sidebar.title("⚙️ Noris Control Panel")
 
 st.sidebar.subheader("📝 Daftar Saham")
-# UPDATE: TAMBAH OPSI KOMPAS100
 input_mode = st.sidebar.radio("Pilih Sumber Saham:", ["LQ45 (Bluechip)", "Kompas100 (Market Wide)", "Input Manual"])
 
-# DATABASE SAHAM
-lq45_tickers = [
-    "ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "ASII.JK",
-    "ADRO.JK", "PTBA.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "SIDO.JK",
-    "MDKA.JK", "INCO.JK", "MBMA.JK", "AMRT.JK", "ACES.JK", "HRUM.JK",
-    "AKRA.JK", "MEDC.JK", "ELSA.JK", "BRMS.JK", "DEWA.JK", "BUMI.JK",
-    "UNVR.JK", "MYOR.JK", "CPIN.JK", "JPFA.JK", "SMGR.JK", "INTP.JK", "TPIA.JK",
-    "BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "GOTO.JK"
-]
+lq45_tickers = ["ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "ASII.JK", "ADRO.JK", "PTBA.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "SIDO.JK", "MDKA.JK", "INCO.JK", "MBMA.JK", "AMRT.JK", "ACES.JK", "HRUM.JK", "AKRA.JK", "MEDC.JK", "ELSA.JK", "BRMS.JK", "DEWA.JK", "BUMI.JK", "UNVR.JK", "MYOR.JK", "CPIN.JK", "JPFA.JK", "SMGR.JK", "INTP.JK", "TPIA.JK", "BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "GOTO.JK"]
 
-kompas100_tickers = [
-    # Perbankan
-    "BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "BRIS.JK", "BBTN.JK", "BDMN.JK", "BNGA.JK", "NISP.JK", "BTPS.JK", "ARTO.JK",
-    # Energi & Tambang
-    "ADRO.JK", "PTBA.JK", "ITMG.JK", "UNTR.JK", "PGAS.JK", "MEDC.JK", "AKRA.JK", "ANTM.JK", "INCO.JK", "MDKA.JK", "MBMA.JK", 
-    "HRUM.JK", "TINS.JK", "ELSA.JK", "BUMI.JK", "BRMS.JK", "DEWA.JK", "ENRG.JK", "INDY.JK", "BREN.JK", "CUAN.JK", "AMMN.JK", "ADMR.JK",
-    # Telco & Tech
-    "TLKM.JK", "ISAT.JK", "EXCL.JK", "TOWR.JK", "TBIG.JK", "GOTO.JK", "BUKA.JK", "EMTK.JK", "SCMA.JK",
-    # Consumer
-    "ICBP.JK", "INDF.JK", "UNVR.JK", "GGRM.JK", "HMSP.JK", "KLBF.JK", "SIDO.JK", "MYOR.JK", "CPIN.JK", "JPFA.JK", "AMRT.JK", "ACES.JK", "MAPI.JK",
-    # Properti & Konstruksi
-    "CTRA.JK", "BSDE.JK", "PWON.JK", "SMRA.JK", "ASRI.JK", "SMGR.JK", "INTP.JK", "JSMR.JK", "PTPP.JK", "WIKA.JK", "ADHI.JK",
-    # Conglomerate & Others
-    "ASII.JK", "TPIA.JK", "INKP.JK", "TKIM.JK", "ESSA.JK", "AUTO.JK", "GJTL.JK", "MAPA.JK", "ERAA.JK"
-]
-# Hapus duplikat jika ada
-kompas100_tickers = list(set(kompas100_tickers))
+kompas100_tickers = list(set(lq45_tickers + ["ITMG.JK", "TINS.JK", "ENRG.JK", "INDY.JK", "BREN.JK", "CUAN.JK", "AMMN.JK", "ADMR.JK", "TOWR.JK", "TBIG.JK", "BUKA.JK", "EMTK.JK", "SCMA.JK", "UNVR.JK", "GGRM.JK", "HMSP.JK", "MAPI.JK", "CTRA.JK", "BSDE.JK", "PWON.JK", "SMRA.JK", "ASRI.JK", "JSMR.JK", "PTPP.JK", "WIKA.JK", "ADHI.JK", "INKP.JK", "TKIM.JK", "ESSA.JK", "AUTO.JK", "GJTL.JK", "MAPA.JK", "ERAA.JK"]))
 
-if input_mode == "LQ45 (Bluechip)":
-    tickers = lq45_tickers
-elif input_mode == "Kompas100 (Market Wide)":
-    tickers = kompas100_tickers
+if input_mode == "LQ45 (Bluechip)": tickers = lq45_tickers
+elif input_mode == "Kompas100 (Market Wide)": tickers = kompas100_tickers
 else:
     user_input = st.sidebar.text_area("Kode Saham (Pisahkan koma):", value="BREN, AMMN, CUAN, GOTO, BBRI")
     cleaned_input = [x.strip().upper() for x in user_input.split(',')]
@@ -126,25 +101,26 @@ st.sidebar.subheader("💰 Money Management")
 modal_juta = st.sidebar.number_input("Modal Trading (Juta Rp)", value=100, step=10)
 risk_per_trade_pct = st.sidebar.slider("Resiko per Trade (%)", 0.5, 5.0, 2.0, step=0.5)
 
+st.sidebar.write("**🎚️ Adaptive Risk**")
+extended_multiplier = st.sidebar.slider("Multiplier Saham Extended", 0.1, 1.0, 0.5, step=0.1)
+
 st.sidebar.divider()
 st.sidebar.subheader("🔍 Filter Saham")
 backtest_days = st.sidebar.slider("⏳ Mundur Hari (Backtest)", 0, 90, 0)
 min_trans = st.sidebar.number_input("Min. Transaksi (Miliar)", value=2.0, step=0.5)
-risk_tol = st.sidebar.slider("Toleransi Trend (%)", 1.0, 10.0, 5.0)
 min_volatility = st.sidebar.slider("Min. Volatilitas/Speed (%)", 0.0, 5.0, 0.0, step=0.5)
 
 non_syariah_list = ["BBCA", "BBRI", "BMRI", "BBNI", "BBTN", "BDMN", "BNGA", "NISP", "GGRM", "HMSP", "WIIM", "RMBA", "MAYA", "NOBU", "ARTO"]
 
 # --- 4. ENGINE SCANNER ---
 @st.cache_data(ttl=60) 
-def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vol_pct):
+def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_trade, min_vol_pct, ext_mult):
     results = []
     selected_tickers = []
-    
     text_progress = st.empty()
     bar_progress = st.progress(0)
-    
     total = len(ticker_list)
+    
     modal_rupiah = modal_jt * 1_000_000
     risk_money_rupiah = modal_rupiah * (risk_pct_trade / 100)
 
@@ -153,30 +129,24 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
         text_progress.text(f"Scanning {ticker_clean}... ({i+1}/{total})")
         
         try:
-            # 1. AMBIL DATA TEKNIKAL
             ticker_obj = yf.Ticker(ticker)
             df_full = ticker_obj.history(period="1y")
             
             if df_full.empty or len(df_full) < (30 + days_back): continue
             
-            if days_back > 0:
-                df = df_full.iloc[:-days_back].copy()
-            else:
-                df = df_full.copy()
+            if days_back > 0: df = df_full.iloc[:-days_back].copy()
+            else: df = df_full.copy()
 
             signal_close = float(df['Close'].iloc[-1])
             prev_high = float(df['High'].iloc[-2])
             
-            # Filter Volatility
+            # Volatility
             df['ATR'] = df.ta.atr(length=14)
             current_atr = df['ATR'].iloc[-1]
             atr_pct = (current_atr / signal_close) * 100
             if atr_pct < min_vol_pct: continue
             
-            vol_label = "NORMAL"
-            if atr_pct > 3.0: vol_label = "⚡ HIGH"
-
-            # Filter Indicators
+            # Indicator Calculation
             df['HL2'] = (df['High'] + df['Low']) / 2
             df['Teeth_Raw'] = df.ta.sma(close='HL2', length=8)
             red_line = float(df['Teeth_Raw'].iloc[-6]) if not pd.isna(df['Teeth_Raw'].iloc[-6]) else 0
@@ -190,35 +160,52 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
             curr_vol = df['Volume'].iloc[-1]
             avg_vol_20 = df['Volume'].rolling(window=20).mean().iloc[-1]
             vol_ratio = curr_vol / avg_vol_20 if avg_vol_20 > 0 else 0
-            vol_spike_status = "NORMAL"
-            if vol_ratio >= 2.0: vol_spike_status = "🔥 SPIKE"
+            
+            # Deteksi Volume Spike (Bandar Masuk)
+            is_spike = vol_ratio >= 2.0
+            
+            # Deteksi Extended (Harga > 5% dari garis merah)
+            dist_to_red = ((signal_close - red_line) / signal_close) * 100
+            is_extended = dist_to_red > 5.0
 
-            # 2. LOGIKA SINYAL
+            # --- LOGIKA SINYAL (SYNC DENGAN TV V40) ---
             status = ""
             priority = 0
+            risk_multiplier = 1.0 # Default Full
             
-            if signal_close > breakout_level:
-                status = "🚀 BREAKOUT"
-                priority = 1
-                diff = ((signal_close - breakout_level) / breakout_level) * 100
-            elif signal_close > prev_high and signal_close > red_line:
-                status = "🔥 FOLLOW UP"
-                priority = 2
-                diff = ((signal_close - prev_high) / prev_high) * 100
-            elif signal_close > red_line:
-                status = "🟢 EARLY TREND"
-                priority = 3
-                diff = ((signal_close - red_line) / signal_close) * 100
-                if diff > risk_tol: status = "⚠️ EXTENDED"; priority = 4
+            # Syarat Utama: HARUS UPTREND (Harga > Garis Merah)
+            if signal_close > red_line:
+                # 1. Prioritas Tertinggi: SPIKE
+                if is_spike:
+                    status = "🟣 VOL SPIKE"
+                    priority = 1
+                    risk_multiplier = 1.0
+                    
+                # 2. Breakout
+                elif signal_close > breakout_level:
+                    status = "🚀 BREAKOUT"
+                    priority = 2
+                    risk_multiplier = 1.0
+                    
+                # 3. Reversal (Semua Uptrend yg bukan Spike/Breakout)
+                else:
+                    status = "🟢 REVERSAL"
+                    priority = 3
+                    
+                # Cek Multiplier Khusus Extended
+                # Jika extended, turunkan resiko (meskipun statusnya Spike/Breakout/Reversal)
+                if is_extended:
+                    risk_multiplier = ext_mult
+            
             else:
                 status = "🔴 WAIT"
                 priority = 5
                 diff = 0
 
-            # 3. BACKTEST CALCULATION
+            # --- Backtest & Lot Calc ---
             performance_label = "⏳ WAIT"
             perf_val = 0
-            is_buy_signal = "BREAKOUT" in status or "FOLLOW" in status or "EARLY" in status
+            is_buy_signal = "BREAKOUT" in status or "REVERSAL" in status or "SPIKE" in status
             
             if days_back > 0 and is_buy_signal:
                 real_current_price = float(df_full['Close'].iloc[-1])
@@ -227,7 +214,6 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
                 if change_pct > 0: performance_label = f"✅ +{change_pct:.1f}%"
                 else: performance_label = f"🔻 {change_pct:.1f}%"
                 selected_tickers.append(ticker)
-
             elif days_back == 0:
                 performance_label = "🆕 LIVE"
 
@@ -235,30 +221,38 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
             stop_loss = int(red_line)
             risk_per_share = signal_close - stop_loss
             
+            # Hitung Lot
             max_lot = 0
             if risk_per_share > 0:
-                calc_lot = (risk_money_rupiah / risk_per_share) / 100
+                adjusted_risk_money = risk_money_rupiah * risk_multiplier
+                calc_lot = (adjusted_risk_money / risk_per_share) / 100
                 max_lot = int(calc_lot)
+                
                 total_buy_val = max_lot * 100 * signal_close
-                if total_buy_val > modal_rupiah: max_lot = int((modal_rupiah / signal_close) / 100)
+                if total_buy_val > modal_rupiah: 
+                    max_lot = int((modal_rupiah / signal_close) / 100)
             
             take_profit = int(signal_close + (risk_per_share * 1.5))
             
+            # Penanda Extended di Status
+            display_status = status
+            if is_extended and "WAIT" not in status:
+                display_status = status + " (EXT)"
+
             result_row = {
                 "Emiten": ticker_clean,
                 "Jenis": label_syariah,
-                "Status": status,
+                "Status": display_status,
                 "Buy": int(signal_close),
                 "LastPrice": int(real_current_price) if days_back > 0 else 0,
                 "Hasil": performance_label,
                 "Max Lot": max_lot,
                 "SL": stop_loss,
                 "TP": take_profit,
-                "Risk%": round(diff, 1),
+                "Risk": f"{dist_to_red:.1f}%",
                 "Chart": f"https://www.tradingview.com/chart/?symbol=IDX:{ticker_clean}",
                 "Priority": priority,
-                "PerfVal": perf_val,
-                "VolRatio": vol_ratio
+                "PerfVal": perf_val
             }
             results.append(result_row)
 
@@ -273,7 +267,7 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
         if days_back > 0:
             df_res = df_res.sort_values(by=["PerfVal"], ascending=False)
         else:
-            df_res = df_res.sort_values(by=["Priority", "VolRatio"], ascending=[True, False])
+            df_res = df_res.sort_values(by=["Priority", "Risk"], ascending=[True, True])
             
     return df_res, selected_tickers
 
@@ -288,10 +282,10 @@ if st.button(btn_txt):
     else: st.success(f"📅 **LIVE:** {tgl_skrg.strftime('%d %B %Y')}")
 
     with st.spinner(f'Menganalisa {len(tickers)} Saham...'):
-        df, sel_tickers = scan_market(tickers, min_trans, risk_tol, backtest_days, modal_juta, risk_per_trade_pct, min_volatility)
+        df, sel_tickers = scan_market(tickers, min_trans, risk_per_trade_pct, backtest_days, modal_juta, risk_per_trade_pct, min_volatility, extended_multiplier)
         
         if not df.empty:
-            df_buy = df[df['Status'].str.contains("BREAKOUT|FOLLOW|EARLY")]
+            df_buy = df[~df['Status'].str.contains("WAIT")]
             
             if backtest_days > 0 and not df_buy.empty:
                 st.subheader("📈 GRAFIK PERFORMA")
@@ -335,9 +329,9 @@ if st.button(btn_txt):
                         "SL": st.column_config.NumberColumn("Stop Loss", format="Rp %d"),
                         "TP": st.column_config.NumberColumn("Take Profit", format="Rp %d"),
                         "Max Lot": st.column_config.NumberColumn("Max Lot", format="%d Lot"),
-                        "Risk%": st.column_config.NumberColumn("Risk", format="%.1f %%"),
+                        "Risk": st.column_config.TextColumn("Risk Lvl"),
                     }
-                    cols_to_show = ['No', 'Emiten', 'Status', 'Buy', 'Max Lot', 'SL', 'TP', 'Risk%', 'Chart']
+                    cols_to_show = ['No', 'Emiten', 'Status', 'Buy', 'Max Lot', 'SL', 'TP', 'Risk', 'Chart']
                     final_df = df_buy[cols_to_show]
 
                 styled_df = (final_df.style
@@ -349,6 +343,8 @@ if st.button(btn_txt):
                 if backtest_days == 0:
                     styled_df = styled_df.applymap(lambda x: 'background-color: #cce5ff; color: #004085; font-weight: bold;', subset=['Max Lot'])
                     styled_df = styled_df.applymap(lambda x: 'color: red; font-weight: bold;', subset=['SL'])
+                    # Warnai Status Sesuai Kategori
+                    styled_df = styled_df.applymap(lambda x: 'color: #9C27B0; font-weight: bold;' if 'SPIKE' in str(x) else ('color: blue; font-weight: bold;' if 'BREAKOUT' in str(x) else 'color: green; font-weight: bold;'), subset=['Status'])
 
                 st.dataframe(styled_df, column_config=column_config, use_container_width=True, hide_index=True)
             else: st.info(f"Tidak ada sinyal Buy.")
