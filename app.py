@@ -5,7 +5,7 @@ import pandas_ta as ta
 import numpy as np
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V59", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System", layout="wide", initial_sidebar_state="expanded")
 
 # --- 2. SIDEBAR PARAMETER (LENGKAP) ---
 st.sidebar.title("⚙️ Parameter")
@@ -79,7 +79,7 @@ def scan_market(ticker_list, min_val_m, modal_jt, risk_pct_trade, ext_mult, min_
     return pd.DataFrame(results).sort_values(by=["ScoreRaw", "RS"], ascending=False) if results else pd.DataFrame(), selected_tickers
 
 # --- 4. TAMPILAN UTAMA ---
-st.title("📱 Noris Trading System V59")
+st.title("📱 Noris Trading System")
 
 if st.button("🚀 SCAN MINERVINI MARKET"):
     df, sel_tickers = scan_market(tickers, min_trans, modal_juta, risk_per_trade_pct, extended_multiplier, min_rs_rating)
