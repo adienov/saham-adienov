@@ -5,68 +5,86 @@ import pandas_ta as ta
 import numpy as np
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V63", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System V64", layout="wide", initial_sidebar_state="expanded")
 
-# --- 2. SIDEBAR PARAMETER (DENGAN BACKTEST ENGINE) ---
+# --- 2. GLOBAL MARKET MONITOR (OTOMATIS) ---
+def display_global_indices():
+    st.markdown("### 🌎 GLOBAL MARKET MONITOR")
+    indices = {"IHSG (JKSE)": "^JKSE", "S&P 500 (US)": "^GSPC", "Nasdaq (US)": "^IXIC", "Dow Jones": "^DJI"}
+    cols = st.columns(len(indices))
+    for i, (name, symbol) in enumerate(indices.items()):
+        try:
+            data = yf.Ticker(symbol).history(period="6mo")
+            if not data.empty:
+                curr = data['Close'].iloc[-1]
+                pct = ((curr - data['Close'].iloc[-2]) / data['Close'].iloc[-2]) * 100
+                ma20 = data['Close'].rolling(20).mean().iloc[-1]
+                status_txt = "🟢 BULLISH" if curr > ma20 else "🔴 BEARISH"
+                with cols[i]:
+                    st.markdown(f"**{name}**")
+                    st.metric(status_txt, f"{curr:,.0f}", f"{pct:+.2f}%")
+                    st.area_chart((data['Close']/data['Close'].iloc[0]-1)*100, height=80, color="#2962FF")
+        except: pass
+    st.divider()
+
+display_global_indices()
+
+# --- 3. SIDEBAR PARAMETER & PROFIT TRACKER ---
 st.sidebar.title("⚙️ Parameter")
-
-# --- TABEL BACKTEST DI SIDEBAR ---
 st.sidebar.subheader("📊 Profit Tracker (3 Bulan)")
 bt_ticker = st.sidebar.text_input("Kode Saham (Contoh: PGAS.JK):", value="PGAS.JK")
 
-def quick_backtest(ticker):
-    try:
-        # Ambil data 4 bulan untuk memastikan indikator 3 bulan akurat
-        df = yf.Ticker(ticker).history(period="4mo")
-        if df.empty or len(df) < 20: return None
-        
-        # Kalkulasi Profit 3 Bulan (Point to Point)
-        price_3m_ago = df['Close'].iloc[0]
-        price_now = df['Close'].iloc[-1]
-        pnl_pct = ((price_now - price_3m_ago) / price_3m_ago) * 100
-        
-        # Cek Sinyal Minervini di masa lalu (MA Alignment)
-        df['MA50'] = df['Close'].rolling(50).mean()
-        is_uptrend = price_now > df['MA50'].iloc[-1]
-        
-        return pnl_pct, is_uptrend, price_3m_ago, price_now
-    except: return None
-
 if st.sidebar.button("📈 Cek Profit 3 Bln"):
-    res = quick_backtest(bt_ticker)
-    if res:
-        pnl, trend, p_old, p_new = res
+    try:
+        df_bt = yf.Ticker(bt_ticker).history(period="4mo")
+        p_old, p_now = df_bt['Close'].iloc[0], df_bt['Close'].iloc[-1]
+        pnl = ((p_now - p_old) / p_old) * 100
         color = "green" if pnl > 0 else "red"
-        st.sidebar.markdown(f"""
-        <div style='background-color:#f0f2f6; padding:10px; border-radius:10px; border-left: 5px solid {color};'>
-            <small>Rekomendasi 3 Bln Lalu</small><br>
-            <b>Cuan/Rugi: <span style='color:{color};'>{pnl:+.2f}%</span></b><br>
-            <small>Harga Dulu: {p_old:,.0f} → Kini: {p_new:,.0f}</small>
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.sidebar.error("Data tidak ditemukan.")
+        st.sidebar.success(f"Cuan/Rugi: {pnl:+.2f}%")
+        st.sidebar.caption(f"Price: {p_old:,.0f} -> {p_now:,.0f}")
+    except: st.sidebar.error("Data Error")
 
 st.sidebar.divider()
-st.sidebar.subheader("1. Daftar Saham")
-input_mode = st.sidebar.radio("Sumber:", ["LQ45 (Bluechip)", "Kompas100 (Market Wide)", "Input Manual"])
+input_mode = st.sidebar.radio("Sumber Saham:", ["LQ45 (Bluechip)", "Kompas100 (Market Wide)"])
+min_rs = st.sidebar.slider("Min. RS Rating", 0, 99, 70)
+modal_jt = st.sidebar.number_input("Modal (Juta Rp)", value=100)
 
-# ... (Logika Parameter Lainnya tetap sama seperti V59) ...
-st.sidebar.subheader("2. Filter & Money Management")
-min_rs_rating = st.sidebar.slider("Min. RS Rating", 0, 99, 70)
-modal_juta = st.sidebar.number_input("Modal (Juta Rp)", value=100)
-
-# --- 3. ENGINE SCANNER (BASIS V59) ---
+# --- 4. ENGINE SCANNER (LIVE MARKET) ---
 @st.cache_data(ttl=300)
-def scan_market(ticker_list, modal_jt, risk_pct_trade, ext_mult, min_rs):
-    # ... (Gunakan fungsi scan_market dari versi V59 Bapak) ...
-    # (Pastikan fungsi ini tetap ada di dalam file app.py Anda)
-    pass
+def scan_market_live(ticker_list, min_rs_val):
+    results = []
+    try:
+        data_batch = yf.download(ticker_list, period="1y", progress=False)['Close']
+        rs_map = (data_batch.iloc[-1]/data_batch.iloc[0]-1).rank(pct=True).to_dict()
+    except: rs_map = {}
 
-# --- 4. TAMPILAN UTAMA ---
-st.title("📈 Noris Trading System V63")
+    for ticker in ticker_list:
+        try:
+            df = yf.Ticker(ticker).history(period="2y")
+            if len(df) < 250: continue
+            close = df['Close'].iloc[-1]
+            ma50, ma150, ma200 = df['Close'].rolling(50).mean().iloc[-1], df['Close'].rolling(150).mean().iloc[-1], df['Close'].rolling(200).mean().iloc[-1]
+            rs_rating = int(rs_map.get(ticker, 0.5) * 99)
+            
+            # Kriteria Stage 2
+            if close > ma150 and ma150 > ma200 and close > ma50 and rs_rating >= min_rs_val:
+                red_line = ta.sma((df['High']+df['Low'])/2, 8).iloc[-1]
+                results.append({
+                    "Emiten": ticker.replace(".JK",""), "RS": rs_rating, 
+                    "Status": "🚀 BREAKOUT" if close > df['High'].rolling(20).max().shift(1).iloc[-1] else "🟢 REVERSAL",
+                    "Buy": int(close), "SL": int(red_line), "Risk": f"{((close-red_line)/close)*100:.1f}%",
+                    "Chart": f"https://www.tradingview.com/chart/?symbol=IDX:{ticker.replace('.JK','')}"
+                })
+        except: continue
+    return pd.DataFrame(results).sort_values("RS", ascending=False) if results else pd.DataFrame()
 
-if st.button("🚀 SCAN MINERVINI MARKET"):
-    # (Panggil scan_market dan tampilkan hasil seperti V59)
-    # Tampilkan Market Correlation & Tabel Hasil Lengkap
-    st.info("Scanner sedang memproses data...")
+# --- 5. EKSEKUSI SCANNER ---
+if st.button("🚀 JALANKAN SCANNER LIVE"):
+    lq45 = ["ANTM.JK", "BRIS.JK", "TLKM.JK", "ASII.JK", "ADRO.JK", "PGAS.JK", "BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "MDKA.JK", "EXCL.JK"]
+    df_res = scan_market_live(lq45, min_rs)
+    
+    if not df_res.empty:
+        st.subheader("📋 HASIL SCANNER SAHAM LOLOS KRITERIA")
+        st.dataframe(df_res, column_config={"Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka")}, use_container_width=True, hide_index=True)
+    else:
+        st.warning("Belum ada saham yang memenuhi kriteria hari ini.")
