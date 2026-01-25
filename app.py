@@ -5,71 +5,50 @@ import pandas_ta as ta
 import numpy as np
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V60", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System V59", layout="wide", initial_sidebar_state="expanded")
 
-# --- 2. HEADER & GLOBAL MARKET DASHBOARD (OTOMATIS TAMPIL) ---
-st.title("📱 Noris Trading System V60")
-
-def display_global_indices():
-    st.markdown("### 🌎 GLOBAL MARKET MONITOR")
-    
-    # Daftar Indeks Global + IHSG
-    indices = {
-        "IHSG (JKSE)": "^JKSE",
-        "S&P 500 (US)": "^GSPC",
-        "Nasdaq (US)": "^IXIC",
-        "Dow Jones": "^DJI"
-    }
-    
-    cols = st.columns(len(indices))
-    
-    for i, (name, symbol) in enumerate(indices.items()):
-        try:
-            data = yf.Ticker(symbol).history(period="6mo")
-            if not data.empty:
-                curr = data['Close'].iloc[-1]
-                prev = data['Close'].iloc[-2]
-                pct = ((curr - prev) / prev) * 100
-                
-                # Cek Status Bullish/Bearish (di atas MA20)
-                ma20 = data['Close'].rolling(20).mean().iloc[-1]
-                is_bull = curr > ma20
-                status_txt = "🟢 BULLISH" if is_bull else "🔴 BEARISH"
-                status_color = "#2962FF" # Unified Blue
-                
-                with cols[i]:
-                    st.markdown(f"**{name}**")
-                    st.metric(status_txt, f"{curr:,.0f}", f"{pct:+.2f}%")
-                    # Mini Chart Persis Saham VCP
-                    norm_chart = (data['Close'] / data['Close'].iloc[0] - 1) * 100
-                    st.area_chart(norm_chart.tail(60), height=100, color=status_color)
-        except:
-            cols[i].error(f"Error {name}")
-    st.divider()
-
-# Langsung tampilkan saat website dibuka
-display_global_indices()
-
-# --- 3. SIDEBAR PARAMETER ---
+# --- 2. SIDEBAR PARAMETER (LENGKAP) ---
 st.sidebar.title("⚙️ Parameter")
-input_mode = st.sidebar.radio("Sumber Saham:", ["LQ45 (Bluechip)", "Kompas100 (Market Wide)", "Input Manual"])
-min_rs = st.sidebar.slider("Min. RS Rating", 0, 99, 70)
-modal_jt = st.sidebar.number_input("Modal (Juta Rp)", value=100, step=10)
-risk_pct = st.sidebar.slider("Resiko per Trade (%)", 0.5, 5.0, 2.0)
-ext_mult = st.sidebar.slider("Multiplier Extended", 0.1, 1.0, 0.5)
+st.sidebar.subheader("1. Daftar Saham")
+input_mode = st.sidebar.radio("Sumber:", ["LQ45 (Bluechip)", "Kompas100 (Market Wide)", "Input Manual"])
 
-# --- 4. ENGINE SCANNER ---
+# ... (Daftar ticker LQ45 & Kompas100 tetap sama) ...
+lq45_tickers = ["ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "ASII.JK", "ADRO.JK", "PTBA.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "SIDO.JK", "MDKA.JK", "INCO.JK", "MBMA.JK", "AMRT.JK", "ACES.JK", "HRUM.JK", "AKRA.JK", "MEDC.JK", "ELSA.JK", "BRMS.JK", "DEWA.JK", "BUMI.JK", "UNVR.JK", "MYOR.JK", "CPIN.JK", "JPFA.JK", "SMGR.JK", "INTP.JK", "TPIA.JK", "BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "GOTO.JK"]
+kompas100_tickers = list(set(lq45_tickers + ["ITMG.JK", "TINS.JK", "ENRG.JK", "INDY.JK", "BREN.JK", "CUAN.JK", "AMMN.JK", "ADMR.JK", "TOWR.JK", "TBIG.JK", "BUKA.JK", "EMTK.JK", "SCMA.JK", "GGRM.JK", "HMSP.JK", "MAPI.JK", "CTRA.JK", "BSDE.JK", "PWON.JK", "SMRA.JK", "ASRI.JK", "JSMR.JK", "PTPP.JK", "WIKA.JK", "ADHI.JK", "INKP.JK", "TKIM.JK", "ESSA.JK", "AUTO.JK", "GJTL.JK", "MAPA.JK", "ERAA.JK"]))
+
+if input_mode == "LQ45 (Bluechip)": tickers = lq45_tickers
+elif input_mode == "Kompas100 (Market Wide)": tickers = kompas100_tickers
+else:
+    user_input = st.sidebar.text_area("Kode Saham (Koma):", value="BREN, AMMN, CUAN, GOTO, BBRI")
+    tickers = [f"{x.strip().upper()}.JK" for x in user_input.split(',') if x.strip()]
+
+st.sidebar.divider()
+st.sidebar.subheader("2. Filter Minervini")
+min_rs_rating = st.sidebar.slider("Min. RS Rating", 0, 99, 70)
+chart_duration = st.sidebar.selectbox("Durasi Chart", ["3mo", "6mo", "1y"], index=1)
+
+st.sidebar.divider()
+st.sidebar.subheader("3. Money Management")
+modal_juta = st.sidebar.number_input("Modal (Juta Rp)", value=100, step=10)
+risk_per_trade_pct = st.sidebar.slider("Resiko per Trade (%)", 0.5, 5.0, 2.0)
+extended_multiplier = st.sidebar.slider("Multiplier Extended", 0.1, 1.0, 0.5)
+min_trans = st.sidebar.number_input("Min. Transaksi (Miliar)", value=2.0, step=0.5)
+
+# --- 3. ENGINE SCANNER ---
 @st.cache_data(ttl=300)
-def scan_market(ticker_list, modal_jt, risk_pct_trade, ext_mult, min_rs):
+def scan_market(ticker_list, min_val_m, modal_jt, risk_pct_trade, ext_mult, min_rs):
     results = []
+    selected_tickers = []
     modal_rupiah = modal_jt * 1_000_000
     risk_money_rupiah = modal_rupiah * (risk_pct_trade / 100)
     
     try:
-        # RS Calculation
         data_batch = yf.download(ticker_list, period="1y", progress=False)['Close']
-        rs_map = (data_batch.iloc[-1]/data_batch.iloc[0]-1).rank(pct=True).to_dict()
-    except: rs_map = {}
+        rs_scores = {t: (data_batch[t].iloc[-1]/data_batch[t].iloc[0]-1) for t in ticker_list if t in data_batch}
+        rs_df = pd.DataFrame(list(rs_scores.items()), columns=['Ticker', 'Perf'])
+        rs_df['Rank'] = rs_df['Perf'].rank(pct=True) * 99
+        rs_map = rs_df.set_index('Ticker')['Rank'].to_dict()
+    except: rs_map = {t: 50 for t in ticker_list}
 
     for ticker in ticker_list:
         try:
@@ -77,36 +56,62 @@ def scan_market(ticker_list, modal_jt, risk_pct_trade, ext_mult, min_rs):
             if len(df) < 250: continue
             close = df['Close'].iloc[-1]
             ma50, ma150, ma200 = df['Close'].rolling(50).mean().iloc[-1], df['Close'].rolling(150).mean().iloc[-1], df['Close'].rolling(200).mean().iloc[-1]
-            rs_rating = int(rs_map.get(ticker, 0.5) * 99)
-            
-            # Stage 2 Filter
-            if close > ma150 and ma150 > ma200 and close > ma50 and rs_rating >= min_rs:
+            low_52w, high_52w = df['Low'].tail(250).min(), df['High'].tail(250).max()
+            rs_rating = int(rs_map.get(ticker, 50))
+            is_stage2 = close > ma150 and ma150 > ma200 and ma200 > df['Close'].rolling(200).mean().iloc[-20] and ma50 > ma150 and close > ma50 and close > low_52w*1.25 and close > high_52w*0.75 and rs_rating >= min_rs
+            if is_stage2:
                 red_line = ta.sma((df['High']+df['Low'])/2, 8).iloc[-1]
                 if close > red_line:
-                    risk_share = close - red_line
-                    dist_to_red = (risk_share / close) * 100
-                    mult = ext_mult if dist_to_red > 5 else 1.0
-                    max_lot = int((risk_money_rupiah * mult / risk_share)/100) if risk_share > 0 else 0
-                    
+                    vol_ratio = df['Volume'].iloc[-1] / df['Volume'].rolling(20).mean().iloc[-1]
+                    dist_to_red = ((close - red_line)/close)*100
+                    vcp_score = sum([1 for x in [df.ta.atr(5).iloc[-1]/df.ta.atr(20).iloc[-1]<0.9, (high_52w-close)/high_52w<0.1, df.ta.rsi().iloc[-1]>60, vol_ratio>0.8]])
+                    risk_mult = ext_mult if dist_to_red > 5 else 1.0
+                    sl, risk_share = int(red_line), close - red_line
+                    max_lot = int((risk_money_rupiah * risk_mult / risk_share)/100) if risk_share > 0 else 0
                     results.append({
-                        "Emiten": ticker.replace(".JK",""), "RS": rs_rating, 
-                        "Status": "🚀 BREAKOUT" if close > df['High'].rolling(20).max().shift(1).iloc[-1] else "🟢 REVERSAL",
-                        "Buy": int(close), "SL": int(red_line), "Max Lot": max_lot, "Risk": f"{dist_to_red:.1f}%",
+                        "Emiten": ticker.replace(".JK",""), "RS": rs_rating, "Rating": "⭐"*max(1, vcp_score), 
+                        "Status": "🟣 VOL SPIKE" if vol_ratio > 2 else "🚀 BREAKOUT" if close > df['High'].rolling(20).max().shift(1).iloc[-1] else "🟢 REVERSAL",
+                        "Buy": int(close), "SL": sl, "TP": int(close + risk_share*1.5), "Max Lot": max_lot, "Risk": f"{dist_to_red:.1f}%", "ScoreRaw": vcp_score,
                         "Chart": f"https://www.tradingview.com/chart/?symbol=IDX:{ticker.replace('.JK','')}"
                     })
+                    selected_tickers.append(ticker)
         except: continue
-    return pd.DataFrame(results).sort_values("RS", ascending=False) if results else pd.DataFrame()
+    return pd.DataFrame(results).sort_values(by=["ScoreRaw", "RS"], ascending=False) if results else pd.DataFrame(), selected_tickers
 
-# --- 5. EKSEKUSI SCANNER ---
-if st.button("🚀 JALANKAN SCANNER MINERVINI"):
-    # Penentuan Tickers
-    lq45 = ["ANTM.JK", "BRIS.JK", "TLKM.JK", "ASII.JK", "ADRO.JK", "PGAS.JK", "BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK"]
-    tickers = lq45 if input_mode == "LQ45 (Bluechip)" else lq45 # Sederhanakan utk contoh
-    
-    df_res = scan_market(tickers, modal_jt, risk_pct, ext_mult, min_rs)
-    
-    if not df_res.empty:
-        st.subheader("📋 HASIL SCANNER SAHAM LOLOS KRITERIA")
-        st.dataframe(df_res, column_config={"Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka")}, use_container_width=True, hide_index=True)
-    else:
-        st.warning("Belum ada saham yang memenuhi kriteria Stage 2.")
+# --- 4. TAMPILAN UTAMA ---
+st.title("📱 Noris Trading System V59")
+
+if st.button("🚀 SCAN MINERVINI MARKET"):
+    df, sel_tickers = scan_market(tickers, min_trans, modal_juta, risk_per_trade_pct, extended_multiplier, min_rs_rating)
+    if not df.empty:
+        # --- HEADER MARKET CORRELATION DENGAN STATUS ---
+        st.markdown("### 🔍 MARKET CORRELATION")
+        
+        # Ambil Data IHSG untuk Status
+        ihsg_ticker = yf.Ticker("^JKSE")
+        ihsg_hist = ihsg_ticker.history(period="1y")
+        curr_ihsg = ihsg_hist['Close'].iloc[-1]
+        ma20_ihsg = ihsg_hist['Close'].rolling(20).mean().iloc[-1]
+        is_bullish = curr_ihsg > ma20_ihsg
+        mkt_status = "🟢 BULLISH" if is_bullish else "🔴 BEARISH"
+        mkt_color = "green" if is_bullish else "red"
+
+        # Tampilkan Status di sebelah Judul (Gunakan Header Kecil)
+        st.markdown(f"**Current Market Status: <span style='color:{mkt_color}; font-size:1.5rem;'>{mkt_status}</span>**", unsafe_allow_html=True)
+        
+        cols = st.columns(4)
+        with cols[0]:
+            st.markdown("**IHSG INDEX**")
+            ihsg_data = ihsg_hist['Close'].tail(120 if chart_duration == "6mo" else (60 if chart_duration == "3mo" else 250))
+            st.area_chart((ihsg_data/ihsg_data.iloc[0]-1)*100, height=120, color="#2962FF")
+        for idx, row in enumerate(df.head(3).itertuples()):
+            with cols[idx+1]:
+                st.markdown(f"**{row.Emiten}** {row.Rating}")
+                s_data = yf.Ticker(f"{row.Emiten}.JK").history(period=chart_duration)['Close']
+                st.area_chart((s_data/s_data.iloc[0]-1)*100, height=120, color="#2962FF")
+        
+        st.divider()
+        st.subheader("📋 HASIL SCANNER LENGKAP")
+        column_config = {"Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka")}
+        st.dataframe(df, column_config=column_config, use_container_width=True, hide_index=True)
+    else: st.warning("Tidak ada saham lolos kriteria.")
