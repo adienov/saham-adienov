@@ -7,7 +7,7 @@ import pytz
 import numpy as np
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V44", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System V45", layout="wide", initial_sidebar_state="expanded")
 
 # CSS: Styling
 st.markdown("""
@@ -23,8 +23,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER ---
-st.title("📱 Noris Trading System V44")
-st.caption("Visual Screener: Minervini Trend Template & VCP Pattern Preview")
+st.title("📱 Noris Trading System V45")
+st.caption("Visual Fix: Minervini Trend Template & VCP Pattern Preview")
 
 # --- BAROMETER IHSG ---
 def get_ihsg_status():
@@ -53,11 +53,6 @@ with st.expander("📖 KAMUS MINERVINI (Klik Disini)"):
     6.  Harga minimal 25% di atas Low 52-Minggu.
     7.  Harga maksimal 25% di bawah High 52-Minggu (Dekat ATH).
     8.  **RS Rating:** Kekuatan relatif saham dibanding IHSG (Skala 1-99).
-    
-    ### 🚦 Trigger Beli (VCP Breakout)
-    * **🚀 BREAKOUT:** Harga menembus resisten.
-    * **🟣 VOL SPIKE:** Volume meledak (Akumulasi).
-    * **🟢 REVERSAL:** Awal pembalikan arah.
     """)
 
 # --- 3. SIDEBAR ---
@@ -85,7 +80,7 @@ st.sidebar.divider()
 min_trans = st.sidebar.number_input("Min. Transaksi (Miliar)", value=2.0, step=0.5)
 non_syariah_list = ["BBCA", "BBRI", "BMRI", "BBNI", "BBTN", "BDMN", "BNGA", "NISP", "GGRM", "HMSP", "WIIM", "RMBA", "MAYA", "NOBU", "ARTO"]
 
-# --- 4. ENGINE SCANNER (MINERVINI LOGIC) ---
+# --- 4. ENGINE SCANNER ---
 @st.cache_data(ttl=300) 
 def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_mult):
     results = []
@@ -96,7 +91,7 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
     modal_rupiah = modal_jt * 1_000_000
     risk_money_rupiah = modal_rupiah * (risk_pct_trade / 100)
 
-    # 1. Hitung Relative Strength (RS)
+    # RS Calculation
     rs_scores = {}
     try:
         data_batch = yf.download(ticker_list, period="1y", progress=False)['Close']
@@ -106,7 +101,6 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
                 perf = (series.iloc[-1] - series.iloc[0]) / series.iloc[0]
                 rs_scores[t] = perf
             except: rs_scores[t] = -999
-            
         rs_df = pd.DataFrame(list(rs_scores.items()), columns=['Ticker', 'Perf'])
         rs_df['Rank'] = rs_df['Perf'].rank(pct=True) * 99
         rs_map = rs_df.set_index('Ticker')['Rank'].to_dict()
@@ -120,7 +114,6 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
         try:
             ticker_obj = yf.Ticker(ticker)
             df = ticker_obj.history(period="2y")
-            
             if df.empty or len(df) < 260: continue
 
             # Minervini Rules
@@ -132,10 +125,9 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
             
             low_52w = df['Low'].tail(250).min()
             high_52w = df['High'].tail(250).max()
-            
             rs_rating = int(rs_map.get(ticker, 50))
 
-            # --- TREND TEMPLATE RULES (8 Syarat) ---
+            # Rules
             c1 = close > ma150 and close > ma200
             c2 = ma150 > ma200
             c3 = ma200 > ma200_20ago
@@ -147,7 +139,7 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
 
             is_stage2 = c1 and c2 and c3 and c4 and c5 and c6 and c7 and c8
             
-            # --- LOGIKA TRIGGER ---
+            # Logic
             status = "🔴 WAIT"
             priority = 5
             
@@ -164,7 +156,7 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
             dist_to_red = ((close - red_line) / close) * 100
             is_extended = dist_to_red > 5.0
 
-            if is_stage2: # WAJIB STAGE 2
+            if is_stage2:
                 if close > red_line:
                     risk_mult = 1.0
                     if is_spike:
@@ -189,7 +181,6 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
                     
                     tp = int(close + (risk_share * 1.5))
                     label_syariah = "⛔ NON" if ticker_clean in non_syariah_list else "✅ SYARIAH"
-                    
                     display_stat = status + " (EXT)" if is_extended else status
 
                     results.append({
@@ -227,23 +218,30 @@ if st.button("🔍 SCAN MINERVINI TEMPLATE"):
         
         if not df.empty:
             
-            # --- BAGIAN VISUAL CHART (VCP PREVIEW) ---
+            # --- BAGIAN VISUAL CHART (VCP PREVIEW FIX) ---
             st.markdown("### 🔍 VCP PATTERN PREVIEW (Top 4 Stocks)")
-            st.caption("Lihat sekilas apakah pola chart membentuk kontraksi (tenang sebelum badai)?")
+            st.caption("Grafik ini sudah dinormalisasi (%) untuk melihat pola kontraksi dengan jelas.")
             
             top_4 = sel_tickers[:4] # Ambil 4 teratas
             if top_4:
-                cols = st.columns(len(top_4))
+                cols = st.columns(4)
                 for idx, t in enumerate(top_4):
-                    with cols[idx]:
-                        try:
-                            # Ambil data 6 bulan terakhir utk pattern view
-                            mini_chart_data = yf.download(t, period="6mo", progress=False)['Close']
-                            st.subheader(t.replace(".JK", ""))
-                            # Tampilkan Line Chart Minimalis
-                            st.line_chart(mini_chart_data, height=150)
-                        except:
-                            st.error("No Data")
+                    if idx < 4:
+                        with cols[idx]:
+                            st.markdown(f"**{t.replace('.JK', '')}**")
+                            try:
+                                # Fix: Gunakan Ticker().history agar data lebih stabil
+                                chart_data = yf.Ticker(t).history(period="6mo")['Close']
+                                
+                                if not chart_data.empty:
+                                    # Fix: Normalisasi Data (Mulai dari 0%) agar grafik tidak gepeng
+                                    chart_data = (chart_data / chart_data.iloc[0] - 1) * 100
+                                    # Gunakan Area Chart agar lebih jelas
+                                    st.area_chart(chart_data, height=120, color="#2962FF")
+                                else:
+                                    st.warning("Data Loading...")
+                            except:
+                                st.warning("Chart Error")
             
             st.divider()
 
