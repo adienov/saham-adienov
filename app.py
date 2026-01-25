@@ -7,7 +7,7 @@ import pytz
 import numpy as np
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V47", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System", layout="wide", initial_sidebar_state="expanded")
 
 # CSS: Styling
 st.markdown("""
@@ -22,27 +22,42 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. HEADER ---
-st.title("📱 Noris Trading System V47")
-st.caption("Customizable Edition: RS Threshold & Chart Duration Settings")
+# --- 2. HEADER & BAROMETER ---
+st.title("📱 Noris Trading System")
+st.caption("Market Correlation Edition: Live IHSG Chart & VCP Previews")
 
-# --- BAROMETER IHSG ---
-def get_ihsg_status():
+# --- FUNGSI CHART IHSG ---
+def display_ihsg_dashboard():
     try:
-        ihsg = yf.download("^JKSE", period="3mo", progress=False)
-        if isinstance(ihsg.columns, pd.MultiIndex): ihsg = ihsg.xs("^JKSE", level=1, axis=1)
-        current_price = ihsg['Close'].iloc[-1]
-        ma20 = ihsg['Close'].rolling(window=20).mean().iloc[-1]
-        if current_price > ma20: return "🟢 BULLISH", "Market Aman.", "normal"
-        else: return "🔴 BEARISH", "Hati-hati.", "inverse"
-    except: return "OFFLINE", "No Data", "off"
+        ihsg_data = yf.Ticker("^JKSE").history(period="1y")
+        if not ihsg_data.empty:
+            current_price = ihsg_data['Close'].iloc[-1]
+            prev_price = ihsg_data['Close'].iloc[-2]
+            change = current_price - prev_price
+            pct_change = (change / prev_price) * 100
+            
+            ma20 = ihsg_data['Close'].rolling(window=20).mean().iloc[-1]
+            status = "🟢 BULLISH" if current_price > ma20 else "🔴 BEARISH"
+            
+            # Baris Atas: Metrik
+            c1, c2, c3 = st.columns([1,1,2])
+            c1.metric("IHSG Index", f"{current_price:,.2f}", f"{pct_change:+.2f}%")
+            c2.metric("Market Status", status)
+            
+            # Baris Bawah: Chart IHSG
+            with c3:
+                # Normalisasi untuk visualisasi tren 6 bulan
+                ihsg_6m = ihsg_data['Close'].tail(120)
+                st.area_chart(ihsg_6m, height=150, color="#FF4B4B")
+                st.caption("IHSG Trend (6 Months)")
+        st.divider()
+    except:
+        st.error("Gagal memuat data IHSG")
 
-ihsg_stat, ihsg_advice, ihsg_col = get_ihsg_status()
-st.info(f"**STATUS IHSG:** {ihsg_stat} | {ihsg_advice}")
+display_ihsg_dashboard()
 
 # --- 3. SIDEBAR (PARAMETER) ---
-st.sidebar.title("⚙️ Parameter") # <--- SUDAH DIGANTI
-
+st.sidebar.title("⚙️ Parameter")
 st.sidebar.subheader("1. Daftar Saham")
 input_mode = st.sidebar.radio("Sumber:", ["LQ45 (Bluechip)", "Kompas100 (Market Wide)", "Input Manual"])
 
@@ -57,11 +72,9 @@ else:
     tickers = [f"{x}.JK" if not x.endswith(".JK") else x for x in cleaned_input if x]
 
 st.sidebar.divider()
-
-# --- SETTING BARU ---
 st.sidebar.subheader("2. Filter Minervini")
-min_rs_rating = st.sidebar.slider("Min. RS Rating", 0, 99, 70, help="Minervini menyarankan > 70. Jika pasar sepi, bisa diturunkan ke 50.")
-chart_duration = st.sidebar.selectbox("Durasi Chart VCP", ["3mo", "6mo", "1y"], index=1, format_func=lambda x: "3 Bulan" if x=="3mo" else ("6 Bulan" if x=="6mo" else "1 Tahun"))
+min_rs_rating = st.sidebar.slider("Min. RS Rating", 0, 99, 70)
+chart_duration = st.sidebar.selectbox("Durasi Chart VCP", ["3mo", "6mo", "1y"], index=1)
 
 st.sidebar.divider()
 st.sidebar.subheader("3. Money Management")
@@ -107,7 +120,6 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
             df = ticker_obj.history(period="2y")
             if df.empty or len(df) < 260: continue
 
-            # Minervini Rules
             close = df['Close'].iloc[-1]
             ma50 = df['Close'].rolling(window=50).mean().iloc[-1]
             ma150 = df['Close'].rolling(window=150).mean().iloc[-1]
@@ -118,7 +130,7 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
             high_52w = df['High'].tail(250).max()
             rs_rating = int(rs_map.get(ticker, 50))
 
-            # Rules
+            # Minervini Trend Template
             c1 = close > ma150 and close > ma200
             c2 = ma150 > ma200
             c3 = ma200 > ma200_20ago
@@ -126,13 +138,9 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
             c5 = close > ma50
             c6 = close >= (low_52w * 1.25)
             c7 = close >= (high_52w * 0.75) 
-            c8 = rs_rating >= min_rs # <--- MENGGUNAKAN SETTING USER
+            c8 = rs_rating >= min_rs 
 
             is_stage2 = c1 and c2 and c3 and c4 and c5 and c6 and c7 and c8
-            
-            # Logic
-            status = "🔴 WAIT"
-            priority = 5
             
             hl2 = (df['High'] + df['Low']) / 2
             red_line = ta.sma(hl2, 8).iloc[-1] 
@@ -143,73 +151,47 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
             
             vol_ratio = df['Volume'].iloc[-1] / df['Volume'].rolling(20).mean().iloc[-1]
             is_spike = vol_ratio >= 2.0
-            
             dist_to_red = ((close - red_line) / close) * 100
             is_extended = dist_to_red > 5.0
 
-            # Scoring
+            # VCP Scoring
             vcp_score = 0
             df['ATR5'] = df.ta.atr(length=5)
             df['ATR20'] = df.ta.atr(length=20)
             atr_ratio = df['ATR5'].iloc[-1] / df['ATR20'].iloc[-1]
             if atr_ratio < 0.9: vcp_score += 1
             if atr_ratio < 0.7: vcp_score += 1
-            dist_to_high = (high_52w - close) / high_52w
-            if dist_to_high < 0.10: vcp_score += 1
-            rsi = df.ta.rsi(length=14).iloc[-1]
-            if rsi > 60: vcp_score += 1
+            if (high_52w - close) / high_52w < 0.10: vcp_score += 1
+            if df.ta.rsi(length=14).iloc[-1] > 60: vcp_score += 1
             if vol_ratio > 0.8: vcp_score += 1
 
-            stars = "⭐"
-            if vcp_score >= 5: stars = "⭐⭐⭐⭐⭐"
-            elif vcp_score == 4: stars = "⭐⭐⭐⭐"
-            elif vcp_score == 3: stars = "⭐⭐⭐"
-            elif vcp_score == 2: stars = "⭐⭐"
-            else: stars = "⭐"
+            stars = "⭐" * max(1, vcp_score)
 
-            if is_stage2:
-                if close > red_line:
-                    risk_mult = 1.0
-                    if is_spike:
-                        status = "🟣 VOL SPIKE"
-                        priority = 1
-                    elif close > breakout_level:
-                        status = "🚀 BREAKOUT"
-                        priority = 2
-                    else:
-                        status = "🟢 REVERSAL"
-                        priority = 3
-                    
-                    if is_extended: risk_mult = ext_mult
-                    
-                    sl = int(red_line)
-                    risk_share = close - sl
-                    max_lot = 0
-                    if risk_share > 0:
-                        max_lot = int((risk_money_rupiah * risk_mult / risk_share) / 100)
-                        if (max_lot * 100 * close) > modal_rupiah:
-                            max_lot = int(modal_rupiah / close / 100)
-                    
-                    tp = int(close + (risk_share * 1.5))
-                    label_syariah = "⛔ NON" if ticker_clean in non_syariah_list else "✅ SYARIAH"
-                    display_stat = status + " (EXT)" if is_extended else status
-
-                    results.append({
-                        "Emiten": ticker_clean,
-                        "RS": rs_rating, 
-                        "Rating": stars, 
-                        "ScoreRaw": vcp_score,
-                        "Jenis": label_syariah,
-                        "Status": display_stat,
-                        "Buy": int(close),
-                        "SL": sl,
-                        "TP": tp,
-                        "Max Lot": max_lot,
-                        "Risk": f"{dist_to_red:.1f}%",
-                        "Chart": f"https://www.tradingview.com/chart/?symbol=IDX:{ticker_clean}",
-                        "Priority": priority
-                    })
-                    selected_tickers.append(ticker)
+            if is_stage2 and close > red_line:
+                risk_mult = ext_mult if is_extended else 1.0
+                status = "🟣 VOL SPIKE" if is_spike else ("🚀 BREAKOUT" if close > breakout_level else "🟢 REVERSAL")
+                
+                sl = int(red_line)
+                risk_share = close - sl
+                max_lot = int((risk_money_rupiah * risk_mult / risk_share) / 100) if risk_share > 0 else 0
+                if (max_lot * 100 * close) > modal_rupiah: max_lot = int(modal_rupiah / close / 100)
+                
+                results.append({
+                    "Emiten": ticker_clean,
+                    "RS": rs_rating, 
+                    "Rating": stars, 
+                    "ScoreRaw": vcp_score,
+                    "Jenis": "✅ SYARIAH" if ticker_clean not in non_syariah_list else "⛔ NON",
+                    "Status": status + " (EXT)" if is_extended else status,
+                    "Buy": int(close),
+                    "SL": sl,
+                    "TP": int(close + (risk_share * 1.5)),
+                    "Max Lot": max_lot,
+                    "Risk": f"{dist_to_red:.1f}%",
+                    "Chart": f"https://www.tradingview.com/chart/?symbol=IDX:{ticker_clean}",
+                    "Priority": 1 if is_spike else (2 if "BREAKOUT" in status else 3)
+                })
+                selected_tickers.append(ticker)
 
         except: continue
         bar_progress.progress((i + 1) / total)
@@ -224,41 +206,24 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
     return df_res, selected_tickers
 
 # --- 5. TAMPILAN UTAMA ---
-if st.button("🔍 SCAN MINERVINI TEMPLATE"):
-    st.success(f"Memulai Analisa (RS > {min_rs_rating} & Stage 2 Logic)...")
-    with st.spinner('Calculating VCP Score & Tightness...'):
+if st.button("🔍 SCAN MINERVINI MARKET"):
+    with st.spinner('Checking Market Alignment...'):
         df, sel_tickers = scan_market(tickers, min_trans, risk_per_trade_pct, modal_juta, risk_per_trade_pct, extended_multiplier, min_rs_rating)
         
         if not df.empty:
-            
-            # --- VCP PREVIEW (DYNAMIC DURATION) ---
             st.markdown("### 🔍 VCP PREVIEW + AI RATING (Top 4)")
-            
             top_4_rows = df.head(4) 
-            
             if not top_4_rows.empty:
                 cols = st.columns(4)
                 for idx, row in enumerate(top_4_rows.itertuples()):
                     with cols[idx]:
-                        ticker_code = row.Emiten
-                        rating_stars = row.Rating
-                        
-                        st.markdown(f"**{ticker_code}**")
-                        st.markdown(f"{rating_stars}") 
-                        
-                        try:
-                            t_full = f"{ticker_code}.JK"
-                            # Gunakan settingan durasi dari user
-                            chart_data = yf.Ticker(t_full).history(period=chart_duration)['Close']
-                            if not chart_data.empty:
-                                chart_data = (chart_data / chart_data.iloc[0] - 1) * 100
-                                st.area_chart(chart_data, height=120, color="#2962FF")
-                            else: st.warning("No Data")
-                        except: st.warning("Error")
+                        st.markdown(f"**{row.Emiten}** ({row.Rating})")
+                        chart_data = yf.Ticker(f"{row.Emiten}.JK").history(period=chart_duration)['Close']
+                        if not chart_data.empty:
+                            chart_data = (chart_data / chart_data.iloc[0] - 1) * 100
+                            st.area_chart(chart_data, height=120, color="#2962FF")
             
             st.divider()
-
-            # --- TABEL HASIL ---
             st.subheader("📋 HASIL SCANNER LENGKAP")
             column_config = {
                 "Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka"),
@@ -268,7 +233,6 @@ if st.button("🔍 SCAN MINERVINI TEMPLATE"):
                 "Max Lot": st.column_config.NumberColumn("Max Lot", format="%d Lot"),
                 "RS": st.column_config.ProgressColumn("RS Rating", min_value=0, max_value=99, format="%d"),
             }
-            
             cols = ['Emiten', 'Rating', 'RS', 'Status', 'Buy', 'Max Lot', 'SL', 'TP', 'Risk', 'Chart']
             styled_df = (df[cols].style
                 .set_properties(**{'text-align': 'center'}) 
