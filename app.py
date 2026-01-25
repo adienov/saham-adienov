@@ -7,7 +7,7 @@ import pytz
 import numpy as np
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V45", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System V46", layout="wide", initial_sidebar_state="expanded")
 
 # CSS: Styling
 st.markdown("""
@@ -23,8 +23,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER ---
-st.title("📱 Noris Trading System V45")
-st.caption("Visual Fix: Minervini Trend Template & VCP Pattern Preview")
+st.title("📱 Noris Trading System V46")
+st.caption("Auto-Rating Edition: AI Scoring for Best VCP Pattern (⭐⭐⭐⭐⭐)")
 
 # --- BAROMETER IHSG ---
 def get_ihsg_status():
@@ -41,18 +41,14 @@ ihsg_stat, ihsg_advice, ihsg_col = get_ihsg_status()
 st.info(f"**STATUS IHSG:** {ihsg_stat} | {ihsg_advice}")
 
 # --- EXPANDER KAMUS ---
-with st.expander("📖 KAMUS MINERVINI (Klik Disini)"):
+with st.expander("📖 KAMUS RATING VCP (Klik Disini)"):
     st.markdown("""
-    ### 🏆 Minervini Trend Template (Stage 2)
-    Saham **WAJIB** memenuhi syarat ini agar lolos screening:
-    1.  Harga > MA 150 & MA 200.
-    2.  MA 150 > MA 200.
-    3.  MA 200 sedang Menanjak (Uptrend).
-    4.  MA 50 > MA 150 & MA 200.
-    5.  Harga > MA 50.
-    6.  Harga minimal 25% di atas Low 52-Minggu.
-    7.  Harga maksimal 25% di bawah High 52-Minggu (Dekat ATH).
-    8.  **RS Rating:** Kekuatan relatif saham dibanding IHSG (Skala 1-99).
+    ### ⭐ Cara Baca Rating Bintang
+    Robot menilai "Kecantikan" chart berdasarkan rumus Minervini:
+    * ⭐⭐⭐⭐⭐ (**Perfect**): Pola sangat ketat (Tight), dekat ATH, Momentum kuat.
+    * ⭐⭐⭐⭐ (**Excellent**): Sangat bagus, sedikit kurang di salah satu aspek.
+    * ⭐⭐⭐ (**Good**): Standar Stage 2.
+    * ⭐ (**Weak**): Trend naik tapi chart masih "goyang" (Volatile).
     """)
 
 # --- 3. SIDEBAR ---
@@ -80,7 +76,7 @@ st.sidebar.divider()
 min_trans = st.sidebar.number_input("Min. Transaksi (Miliar)", value=2.0, step=0.5)
 non_syariah_list = ["BBCA", "BBRI", "BMRI", "BBNI", "BBTN", "BDMN", "BNGA", "NISP", "GGRM", "HMSP", "WIIM", "RMBA", "MAYA", "NOBU", "ARTO"]
 
-# --- 4. ENGINE SCANNER ---
+# --- 4. ENGINE SCANNER (MINERVINI LOGIC + SCORING) ---
 @st.cache_data(ttl=300) 
 def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_mult):
     results = []
@@ -139,7 +135,7 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
 
             is_stage2 = c1 and c2 and c3 and c4 and c5 and c6 and c7 and c8
             
-            # Logic
+            # Logic Trigger
             status = "🔴 WAIT"
             priority = 5
             
@@ -155,6 +151,36 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
             
             dist_to_red = ((close - red_line) / close) * 100
             is_extended = dist_to_red > 5.0
+
+            # --- ALGORITMA JURI VCP (SCORING SYSTEM) ---
+            vcp_score = 0
+            
+            # 1. TIGHTNESS (ATR Ratio): Apakah fluktuasi jangka pendek lebih kecil dari jangka panjang?
+            df['ATR5'] = df.ta.atr(length=5)
+            df['ATR20'] = df.ta.atr(length=20)
+            atr_ratio = df['ATR5'].iloc[-1] / df['ATR20'].iloc[-1]
+            
+            if atr_ratio < 0.9: vcp_score += 1 # Makin ketat makin bagus
+            if atr_ratio < 0.7: vcp_score += 1 # Sangat ketat (Bonus)
+            
+            # 2. BLUE SKY: Apakah harga sangat dekat dengan High 52 Minggu? (< 10%)
+            dist_to_high = (high_52w - close) / high_52w
+            if dist_to_high < 0.10: vcp_score += 1
+            
+            # 3. MOMENTUM RSI: Apakah RSI > 60? (Strong)
+            rsi = df.ta.rsi(length=14).iloc[-1]
+            if rsi > 60: vcp_score += 1
+            
+            # 4. VOLUME SUPPORT: Apakah volume hari ini cukup baik?
+            if vol_ratio > 0.8: vcp_score += 1
+
+            # Konversi Score ke Bintang
+            stars = "⭐"
+            if vcp_score >= 5: stars = "⭐⭐⭐⭐⭐"
+            elif vcp_score == 4: stars = "⭐⭐⭐⭐"
+            elif vcp_score == 3: stars = "⭐⭐⭐"
+            elif vcp_score == 2: stars = "⭐⭐"
+            else: stars = "⭐"
 
             if is_stage2:
                 if close > red_line:
@@ -186,6 +212,8 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
                     results.append({
                         "Emiten": ticker_clean,
                         "RS": rs_rating, 
+                        "Rating": stars, # Output Bintang
+                        "ScoreRaw": vcp_score, # Utk Sorting
                         "Jenis": label_syariah,
                         "Status": display_stat,
                         "Buy": int(close),
@@ -206,42 +234,46 @@ def scan_market(ticker_list, min_val_m, risk_pct, modal_jt, risk_pct_trade, ext_
     
     df_res = pd.DataFrame(results)
     if not df_res.empty:
-        df_res = df_res.sort_values(by=["Priority", "RS"], ascending=[True, False])
+        # Sort by: Score Bintang dulu (Cantik), lalu Priority (Sinyal), lalu RS
+        df_res = df_res.sort_values(by=["ScoreRaw", "Priority", "RS"], ascending=[False, True, False])
             
     return df_res, selected_tickers
 
 # --- 5. TAMPILAN UTAMA ---
 if st.button("🔍 SCAN MINERVINI TEMPLATE"):
-    st.success("Memulai Analisa Trend Template (Stage 2) & VCP Logic...")
-    with st.spinner('Checking 8 Rules & Volume Patterns...'):
+    st.success("Memulai Analisa Trend Template (Stage 2) & AI Scoring...")
+    with st.spinner('Calculating VCP Score & Tightness...'):
         df, sel_tickers = scan_market(tickers, min_trans, risk_per_trade_pct, modal_juta, risk_per_trade_pct, extended_multiplier)
         
         if not df.empty:
             
-            # --- BAGIAN VISUAL CHART (VCP PREVIEW FIX) ---
-            st.markdown("### 🔍 VCP PATTERN PREVIEW (Top 4 Stocks)")
-            st.caption("Grafik ini sudah dinormalisasi (%) untuk melihat pola kontraksi dengan jelas.")
+            # --- BAGIAN VISUAL CHART (AUTO-RATING) ---
+            st.markdown("### 🔍 VCP PREVIEW + AI RATING (Top 4)")
+            st.caption("Bintang (⭐) menunjukkan 'Kecantikan' pola VCP berdasarkan Keketatan (Tightness) & Momentum.")
             
-            top_4 = sel_tickers[:4] # Ambil 4 teratas
-            if top_4:
+            # Ambil 4 saham dengan Score Tertinggi (sudah disort di function)
+            top_4_rows = df.head(4) 
+            
+            if not top_4_rows.empty:
                 cols = st.columns(4)
-                for idx, t in enumerate(top_4):
-                    if idx < 4:
-                        with cols[idx]:
-                            st.markdown(f"**{t.replace('.JK', '')}**")
-                            try:
-                                # Fix: Gunakan Ticker().history agar data lebih stabil
-                                chart_data = yf.Ticker(t).history(period="6mo")['Close']
-                                
-                                if not chart_data.empty:
-                                    # Fix: Normalisasi Data (Mulai dari 0%) agar grafik tidak gepeng
-                                    chart_data = (chart_data / chart_data.iloc[0] - 1) * 100
-                                    # Gunakan Area Chart agar lebih jelas
-                                    st.area_chart(chart_data, height=120, color="#2962FF")
-                                else:
-                                    st.warning("Data Loading...")
-                            except:
-                                st.warning("Chart Error")
+                # Loop berdasarkan Dataframe agar Ratingnya cocok
+                for idx, row in enumerate(top_4_rows.itertuples()):
+                    with cols[idx]:
+                        ticker_code = row.Emiten
+                        rating_stars = row.Rating
+                        
+                        # Tampilkan Rating di atas Chart
+                        st.markdown(f"**{ticker_code}**")
+                        st.markdown(f"{rating_stars}") # <--- TAMPILKAN BINTANG
+                        
+                        try:
+                            t_full = f"{ticker_code}.JK"
+                            chart_data = yf.Ticker(t_full).history(period="6mo")['Close']
+                            if not chart_data.empty:
+                                chart_data = (chart_data / chart_data.iloc[0] - 1) * 100
+                                st.area_chart(chart_data, height=120, color="#2962FF")
+                            else: st.warning("No Data")
+                        except: st.warning("Error")
             
             st.divider()
 
@@ -256,11 +288,12 @@ if st.button("🔍 SCAN MINERVINI TEMPLATE"):
                 "RS": st.column_config.ProgressColumn("RS Rating", min_value=0, max_value=99, format="%d"),
             }
             
-            cols = ['Emiten', 'RS', 'Status', 'Buy', 'Max Lot', 'SL', 'TP', 'Risk', 'Chart']
+            cols = ['Emiten', 'Rating', 'RS', 'Status', 'Buy', 'Max Lot', 'SL', 'TP', 'Risk', 'Chart']
             styled_df = (df[cols].style
                 .set_properties(**{'text-align': 'center'}) 
                 .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
                 .applymap(lambda x: 'background-color: #cce5ff; color: #004085; font-weight: bold;', subset=['Max Lot'])
+                .applymap(lambda x: 'color: #FFD700; font-weight: bold; font-size: 1.1em;', subset=['Rating']) # Warna Emas untuk Bintang
                 .applymap(lambda x: 'color: red; font-weight: bold;', subset=['SL'])
                 .applymap(lambda x: 'color: #9C27B0; font-weight: bold;' if 'SPIKE' in str(x) else ('color: blue; font-weight: bold;' if 'BREAKOUT' in str(x) else 'color: green; font-weight: bold;'), subset=['Status'])
             )
