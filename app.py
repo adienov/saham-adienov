@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import pytz
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="Noris Trading System V30", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Noris Trading System V31", layout="wide", initial_sidebar_state="expanded")
 
 # CSS: Styling
 st.markdown("""
@@ -23,8 +23,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 2. HEADER ---
-st.title("📱 Noris Trading System V30")
-st.caption("Final Clean Edition: Pure Technical Speed Scanner")
+st.title("📱 Noris Trading System V31")
+st.caption("Market Wide Edition: LQ45 • Kompas100 • Custom Input")
 
 # --- BAROMETER IHSG ---
 def get_ihsg_status():
@@ -53,7 +53,9 @@ def get_performance_history(tickers_list, days_back):
     if not tickers_list: return None
         
     try:
-        data = yf.download(tickers_list, period="1y", progress=False)['Close']
+        # Batasi maksimal 5 saham teratas untuk grafik agar tidak berat
+        top_tickers = tickers_list[:5]
+        data = yf.download(top_tickers, period="1y", progress=False)['Close']
         data_cut = data.iloc[-(days_back+1):]
         if isinstance(data_cut, pd.Series):
             normalized_stocks = (data_cut / data_cut.iloc[0] - 1) * 100
@@ -61,7 +63,7 @@ def get_performance_history(tickers_list, days_back):
         else:
             normalized_stocks = (data_cut / data_cut.iloc[0] - 1) * 100
             system_curve = normalized_stocks.mean(axis=1)
-        system_curve.name = "NORIS SYSTEM (Portfolio)"
+        system_curve.name = "NORIS SYSTEM (Top Picks)"
         chart_df = pd.concat([system_curve, ihsg_pct], axis=1).dropna()
         return chart_df
     except: return None
@@ -79,20 +81,43 @@ with st.expander("📖 KAMUS & CARA BACA (Klik Disini)"):
 st.sidebar.title("⚙️ Noris Control Panel")
 
 st.sidebar.subheader("📝 Daftar Saham")
-input_mode = st.sidebar.radio("Pilih Sumber Saham:", ["Default (Bluechip LQ45)", "Input Manual (Ketik Sendiri)"])
+# UPDATE: TAMBAH OPSI KOMPAS100
+input_mode = st.sidebar.radio("Pilih Sumber Saham:", ["LQ45 (Bluechip)", "Kompas100 (Market Wide)", "Input Manual"])
 
-default_tickers = [
+# DATABASE SAHAM
+lq45_tickers = [
     "ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "ASII.JK",
     "ADRO.JK", "PTBA.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "SIDO.JK",
     "MDKA.JK", "INCO.JK", "MBMA.JK", "AMRT.JK", "ACES.JK", "HRUM.JK",
     "AKRA.JK", "MEDC.JK", "ELSA.JK", "BRMS.JK", "DEWA.JK", "BUMI.JK",
-    "UNVR.JK", "MYOR.JK", "CPIN.JK", "JPFA.JK", "SMGR.JK", "INTP.JK", "TPIA.JK"
+    "UNVR.JK", "MYOR.JK", "CPIN.JK", "JPFA.JK", "SMGR.JK", "INTP.JK", "TPIA.JK",
+    "BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "GOTO.JK"
 ]
 
-if input_mode == "Default (Bluechip LQ45)":
-    tickers = default_tickers
+kompas100_tickers = [
+    # Perbankan
+    "BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "BRIS.JK", "BBTN.JK", "BDMN.JK", "BNGA.JK", "NISP.JK", "BTPS.JK", "ARTO.JK",
+    # Energi & Tambang
+    "ADRO.JK", "PTBA.JK", "ITMG.JK", "UNTR.JK", "PGAS.JK", "MEDC.JK", "AKRA.JK", "ANTM.JK", "INCO.JK", "MDKA.JK", "MBMA.JK", 
+    "HRUM.JK", "TINS.JK", "ELSA.JK", "BUMI.JK", "BRMS.JK", "DEWA.JK", "ENRG.JK", "INDY.JK", "BREN.JK", "CUAN.JK", "AMMN.JK", "ADMR.JK",
+    # Telco & Tech
+    "TLKM.JK", "ISAT.JK", "EXCL.JK", "TOWR.JK", "TBIG.JK", "GOTO.JK", "BUKA.JK", "EMTK.JK", "SCMA.JK",
+    # Consumer
+    "ICBP.JK", "INDF.JK", "UNVR.JK", "GGRM.JK", "HMSP.JK", "KLBF.JK", "SIDO.JK", "MYOR.JK", "CPIN.JK", "JPFA.JK", "AMRT.JK", "ACES.JK", "MAPI.JK",
+    # Properti & Konstruksi
+    "CTRA.JK", "BSDE.JK", "PWON.JK", "SMRA.JK", "ASRI.JK", "SMGR.JK", "INTP.JK", "JSMR.JK", "PTPP.JK", "WIKA.JK", "ADHI.JK",
+    # Conglomerate & Others
+    "ASII.JK", "TPIA.JK", "INKP.JK", "TKIM.JK", "ESSA.JK", "AUTO.JK", "GJTL.JK", "MAPA.JK", "ERAA.JK"
+]
+# Hapus duplikat jika ada
+kompas100_tickers = list(set(kompas100_tickers))
+
+if input_mode == "LQ45 (Bluechip)":
+    tickers = lq45_tickers
+elif input_mode == "Kompas100 (Market Wide)":
+    tickers = kompas100_tickers
 else:
-    user_input = st.sidebar.text_area("Masukkan Kode Saham (Pisahkan koma):", value="BREN, AMMN, CUAN, GOTO, BBRI")
+    user_input = st.sidebar.text_area("Kode Saham (Pisahkan koma):", value="BREN, AMMN, CUAN, GOTO, BBRI")
     cleaned_input = [x.strip().upper() for x in user_input.split(',')]
     tickers = [f"{x}.JK" if not x.endswith(".JK") else x for x in cleaned_input if x]
 
@@ -128,7 +153,7 @@ def scan_market(ticker_list, min_val_m, risk_pct, days_back, modal_jt, risk_pct_
         text_progress.text(f"Scanning {ticker_clean}... ({i+1}/{total})")
         
         try:
-            # 1. AMBIL DATA TEKNIKAL MURNI
+            # 1. AMBIL DATA TEKNIKAL
             ticker_obj = yf.Ticker(ticker)
             df_full = ticker_obj.history(period="1y")
             
@@ -262,7 +287,7 @@ if st.button(btn_txt):
     if backtest_days > 0: st.warning(f"🕒 **BACKTEST:** {tgl_sinyal.strftime('%d %B %Y')}")
     else: st.success(f"📅 **LIVE:** {tgl_skrg.strftime('%d %B %Y')}")
 
-    with st.spinner('Menganalisa Portofolio...'):
+    with st.spinner(f'Menganalisa {len(tickers)} Saham...'):
         df, sel_tickers = scan_market(tickers, min_trans, risk_tol, backtest_days, modal_juta, risk_per_trade_pct, min_volatility)
         
         if not df.empty:
@@ -327,4 +352,4 @@ if st.button(btn_txt):
 
                 st.dataframe(styled_df, column_config=column_config, use_container_width=True, hide_index=True)
             else: st.info(f"Tidak ada sinyal Buy.")
-        else: st.error("Data tidak ditemukan atau Kode Saham Salah.")
+        else: st.error("Data tidak ditemukan.")
