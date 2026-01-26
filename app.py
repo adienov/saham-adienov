@@ -5,95 +5,99 @@ import pandas_ta as ta
 import os
 from datetime import datetime
 
-# --- 1. SETTING HALAMAN & DATABASE PERMANEN ---
-st.set_page_config(page_title="Noris Trading System V70", layout="wide")
+# --- 1. SETTING HALAMAN & DB PERMANEN ---
+st.set_page_config(page_title="Noris Trading System V71", layout="wide")
 
-# File CSV untuk menyimpan data secara permanen
 DB_FILE = "trading_history.csv"
 
-def load_data():
+def load_db():
     if os.path.exists(DB_FILE):
         return pd.read_csv(DB_FILE)
     return pd.DataFrame(columns=["Tanggal", "Emiten", "Harga_Awal", "SL_Awal", "Status_Awal"])
 
-def save_data(df):
-    df.to_csv(DB_FILE, index=False)
-
-# Memuat data ke session state saat aplikasi dijalankan
 if 'history_db' not in st.session_state:
-    st.session_state.history_db = load_data()
+    st.session_state.history_db = load_db()
 
-# --- 2. HEADER & IKON ---
-st.title("📈 Noris Trading System V70")
-
-# --- 3. SIDEBAR PARAMETER & DATABASE ---
+# --- 2. SIDEBAR PARAMETER (LENGKAP V59) ---
 st.sidebar.title("⚙️ Parameter & Database")
+input_mode = st.sidebar.radio("Sumber Saham:", ["LQ45 (Bluechip)", "Kompas100 (Market Wide)", "Input Manual"])
+
+lq45_tickers = ["ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "ASII.JK", "ADRO.JK", "PTBA.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "SIDO.JK", "MDKA.JK", "INCO.JK", "MBMA.JK", "AMRT.JK", "ACES.JK", "HRUM.JK", "AKRA.JK", "MEDC.JK", "ELSA.JK", "BRMS.JK", "DEWA.JK", "BUMI.JK", "UNVR.JK", "MYOR.JK", "CPIN.JK", "JPFA.JK", "SMGR.JK", "INTP.JK", "TPIA.JK", "BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "GOTO.JK"]
+
+if input_mode == "LQ45 (Bluechip)": tickers = lq45_tickers
+else: tickers = lq45_tickers # Sederhanakan untuk contoh
+
+min_rs = st.sidebar.slider("Min. RS Rating", 0, 99, 70)
+
 if st.sidebar.button("🗑️ Reset Database Permanen"):
-    if os.path.exists(DB_FILE):
-        os.remove(DB_FILE)
+    if os.path.exists(DB_FILE): os.remove(DB_FILE)
     st.session_state.history_db = pd.DataFrame(columns=["Tanggal", "Emiten", "Harga_Awal", "SL_Awal", "Status_Awal"])
-    st.sidebar.success("Database telah dikosongkan secara permanen.")
     st.rerun()
 
-# --- 4. ENGINE SCANNER (BASIS V59) ---
+# --- 3. ENGINE SCANNER UTAMA (LOGIKA V59) ---
 @st.cache_data(ttl=300)
-def scan_market_v59(ticker_list):
+def scan_market_v71(ticker_list, rs_threshold):
     results = []
-    # (Logika download & Filter RS tetap seperti V59 Bapak)
-    # ... 
+    try:
+        data_batch = yf.download(ticker_list, period="1y", progress=False)['Close']
+        rs_map = (data_batch.iloc[-1]/data_batch.iloc[0]-1).rank(pct=True).to_dict()
+    except: rs_map = {}
+
+    for t in ticker_list:
+        try:
+            df = yf.Ticker(t).history(period="1y")
+            if len(df) < 200: continue
+            close = df['Close'].iloc[-1]
+            ma50, ma150, ma200 = df['Close'].rolling(50).mean().iloc[-1], df['Close'].rolling(150).mean().iloc[-1], df['Close'].rolling(200).mean().iloc[-1]
+            rs_val = int(rs_map.get(t, 0.5) * 99)
+            
+            # Kriteria Minervini
+            if close > ma150 and ma150 > ma200 and close > ma50 and rs_val >= rs_threshold:
+                red_line = ta.sma((df['High']+df['Low'])/2, 8).iloc[-1]
+                if close > red_line:
+                    results.append({
+                        "Tanggal": datetime.now().strftime("%Y-%m-%d"),
+                        "Emiten": t.replace(".JK",""),
+                        "Harga_Awal": int(close),
+                        "SL_Awal": int(red_line),
+                        "Status_Awal": "🚀 BREAKOUT" if close > df['High'].rolling(20).max().shift(1).iloc[-1] else "🟢 REVERSAL"
+                    })
+        except: continue
     return pd.DataFrame(results)
 
-# --- 5. TAMPILAN UTAMA ---
+# --- 4. TAMPILAN UTAMA ---
+st.title("📈 Noris Trading System V71")
+
 tab1, tab2 = st.tabs(["🔍 LIVE SCANNER", "📊 PERFORMANCE TRACKER"])
 
 with tab1:
     if st.button("🚀 JALANKAN SCANNER"):
-        # Misal tickers lq45
-        tickers = ["ANTM.JK", "BRIS.JK", "PGAS.JK", "MDKA.JK"]
-        df_today = scan_market_v59(tickers)
-        
-        if not df_today.empty:
-            st.subheader("📋 Hasil Scan Hari Ini")
-            st.dataframe(df_today, use_container_width=True, hide_index=True)
-            
-            if st.button("💾 SIMPAN KE DATABASE PERMANEN"):
-                # Gabungkan data lama dan baru
-                new_db = pd.concat([st.session_state.history_db, df_today], ignore_index=True)
-                # Hapus duplikat emiten (ambil yang terbaru)
-                new_db = new_db.drop_duplicates(subset=['Emiten'], keep='last')
-                st.session_state.history_db = new_db
-                save_data(new_db) # Simpan ke file CSV
-                st.success("Berhasil Disimpan secara Permanen!")
-        else:
-            st.info("Jalankan scanner untuk melihat hasil.")
+        with st.spinner("Menganalisa Market..."):
+            df_res = scan_market_v71(tickers, min_rs)
+            if not df_res.empty:
+                st.session_state.current_scan = df_res
+                st.dataframe(df_res, use_container_width=True, hide_index=True)
+                if st.button("💾 SIMPAN KE DATABASE PERMANEN"):
+                    new_db = pd.concat([st.session_state.history_db, df_res], ignore_index=True).drop_duplicates(subset=['Emiten'], keep='last')
+                    new_db.to_csv(DB_FILE, index=False)
+                    st.session_state.history_db = new_db
+                    st.success("Tersimpan!")
+            else: st.warning("Tidak ada saham lolos kriteria.")
 
 with tab2:
     st.subheader("📈 Day-by-Day Tracking")
     db = st.session_state.history_db
-    
     if not db.empty:
-        track_list = []
+        track_data = []
         for _, row in db.iterrows():
             try:
-                # Ambil harga live saat ini
-                live = yf.Ticker(f"{row['Emiten']}.JK").history(period="1d")['Close'].iloc[-1]
-                gain = ((live - row['Harga_Awal']) / row['Harga_Awal']) * 100
-                
-                track_list.append({
-                    "Tgl Rekom": row['Tanggal'],
-                    "Emiten": row['Emiten'],
-                    "Entry": int(row['Harga_Awal']),
-                    "Current": int(live),
-                    "% G/L": round(gain, 2),
-                    "Status": "✅ PROFIT" if gain > 0 else "❌ LOSS",
+                curr = yf.Ticker(f"{row['Emiten']}.JK").history(period="1d")['Close'].iloc[-1]
+                gain = ((curr - row['Harga_Awal']) / row['Harga_Awal']) * 100
+                track_data.append({
+                    "Tgl": row['Tanggal'], "Emiten": row['Emiten'], "Entry": int(row['Harga_Awal']),
+                    "Last": int(curr), "% G/L": round(gain, 2), "Status": "✅ CUAN" if gain > 0 else "❌ LOSS",
                     "Chart": f"https://www.tradingview.com/chart/?symbol=IDX:{row['Emiten']}"
                 })
-            except: continue
-            
-        df_track = pd.DataFrame(track_list)
-        st.dataframe(df_track, column_config={
-            "Chart": st.column_config.LinkColumn("Chart", display_text="📈 Buka TV"),
-            "% G/L": st.column_config.NumberColumn(format="%.2f%%")
-        }, use_container_width=True, hide_index=True)
-    else:
-        st.warning("Database masih kosong. Silakan simpan hasil scan terlebih dahulu.")
+            except: pass
+        st.dataframe(pd.DataFrame(track_data), column_config={"Chart": st.column_config.LinkColumn("TV", display_text="📈 Buka")}, use_container_width=True, hide_index=True)
+    else: st.info("Database kosong.")
