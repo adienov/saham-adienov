@@ -6,21 +6,23 @@ import os
 from datetime import datetime, timedelta
 
 # --- 1. SETTING HALAMAN & DATABASE ---
-st.set_page_config(page_title="Noris Trading System V94", layout="wide")
+st.set_page_config(page_title="EDU-VEST TRADING SYSTEM V95", layout="wide")
 
 DB_FILE = "trading_history.csv"
 if 'history_db' not in st.session_state:
     if os.path.exists(DB_FILE):
-        st.session_state.history_db = pd.read_csv(DB_FILE)
+        df_load = pd.read_csv(DB_FILE)
+        # Membersihkan kolom None dari database lama
+        st.session_state.history_db = df_load.dropna(axis=1, how='all')
     else:
         st.session_state.history_db = pd.DataFrame(columns=["Tgl", "Stock", "Syariah", "Entry", "SL/TS"])
 
-# --- 2. ENGINE SCANNER ---
+# --- 2. ENGINE SCANNER (BASIS V94) ---
 SYARIAH_LIST = ["ANTM", "BRIS", "TLKM", "ICBP", "INDF", "UNTR", "PGAS", "EXCL", "ISAT", "KLBF", "SIDO", "MDKA", "INCO", "MBMA", "AMRT", "ACES", "HRUM", "AKRA", "MEDC", "ELSA", "BRMS", "DEWA", "BUMI", "MYOR", "CPIN", "JPFA", "SMGR", "INTP", "TPIA", "GOTO"]
 ALL_TICKERS = [f"{s}.JK" for s in SYARIAH_LIST] + ["BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "ASII.JK", "ADRO.JK"]
 
 @st.cache_data(ttl=300)
-def run_scanner_v94(ticker_list, rs_threshold, target_date=None):
+def run_scanner_v95(ticker_list, rs_threshold, target_date=None):
     results = []
     end_date = datetime.now() if target_date is None else datetime.strptime(target_date, "%Y-%m-%d") + timedelta(days=1)
     
@@ -52,19 +54,20 @@ def run_scanner_v94(ticker_list, rs_threshold, target_date=None):
     return pd.DataFrame(results)
 
 # --- 3. TAMPILAN UTAMA ---
-st.title("📈 Noris Trading System V94")
-tab1, tab2, tab3 = st.tabs(["🔍 NORIS INCARAN", "📊 NORIS PETA (PORTFOLIO)", "⏮️ BACKTEST"])
+st.title("📈 EDU-VEST TRADING SYSTEM") # Trade Mark Baru
+
+tab1, tab2, tab3 = st.tabs(["🔍 EDU-SCANNER (INCARAN)", "📊 EDU-PORTFOLIO (PETA)", "⏮️ HISTORICAL BACKTEST"])
 
 with tab1:
     min_rs = st.sidebar.slider("Min. RS Rating", 0, 99, 70)
-    if st.button("🚀 JALANKAN SCANNER"):
+    if st.button("🚀 JALANKAN SCANNER MARKET"):
         with st.spinner("Menganalisa Market..."):
-            df_res = run_scanner_v94(ALL_TICKERS, min_rs)
+            df_res = run_scanner_v95(ALL_TICKERS, min_rs)
             if not df_res.empty:
                 st.session_state.current_scan = df_res
                 st.markdown(f"""
                     <div style="border-left: 5px solid #1E3A8A; background-color: #f8fafc; padding: 10px 20px; border: 1px solid #e2e8f0; margin-bottom: 15px;">
-                        <span style="color: #1E3A8A; font-weight: bold;">📋 NORIS INCARAN REPORT</span>
+                        <span style="color: #1E3A8A; font-weight: bold;">📋 EDU-VEST SCANNER REPORT</span>
                         <span style="color: #64748b; font-size: 0.8rem; margin-left: 15px;">| {datetime.now().strftime("%d %b %Y | %H:%M")} | Screening: Minervini & VCP</span>
                     </div>
                 """, unsafe_allow_html=True)
@@ -72,24 +75,25 @@ with tab1:
             else: st.warning("Tidak ada saham lolos kriteria.")
 
     if 'current_scan' in st.session_state:
-        if st.button("💾 SIMPAN KE DATABASE"):
-            updated_db = pd.concat([st.session_state.history_db, st.session_state.current_scan], ignore_index=True).drop_duplicates(subset=['Stock'], keep='last')
+        if st.button("💾 SIMPAN KE EDU-PORTFOLIO"):
+            # Gabungkan hanya kolom yang valid
+            valid_cols = ["Tgl", "Stock", "Syariah", "Entry", "SL/TS"]
+            updated_db = pd.concat([st.session_state.history_db, st.session_state.current_scan[valid_cols]], ignore_index=True).drop_duplicates(subset=['Stock'], keep='last')
             updated_db.to_csv(DB_FILE, index=False)
             st.session_state.history_db = updated_db
-            st.toast("✅ Data Berhasil Disimpan ke Noris Peta!", icon="💾")
-            st.success("Sinkronisasi Database Berhasil.")
+            st.toast("✅ Tersimpan di Edu-Portfolio!", icon="💾")
 
 with tab2:
-    st.subheader("📊 Noris Peta (Portfolio Tracking)")
+    st.subheader("📊 Edu-Portfolio Tracking")
     if not st.session_state.history_db.empty:
+        # Menampilkan tabel yang sudah bersih dari kolom None
         st.dataframe(st.session_state.history_db, use_container_width=True, hide_index=True)
-    else: st.info("Database kosong.")
+    else: st.info("Database Portfolio Kosong.")
 
 with tab3:
-    st.subheader("⏮️ Backtest Mundur Tanggal")
-    b_date = st.date_input("Pilih Tanggal:", datetime.now() - timedelta(days=30))
+    st.subheader("⏮️ Historical Backtest")
+    b_date = st.date_input("Pilih Tanggal Mundur:", datetime.now() - timedelta(days=30))
     if st.button("⏪ SCAN TANGGAL TERPILIH"):
-        df_hist = run_scanner_v94(ALL_TICKERS, min_rs, target_date=b_date.strftime("%Y-%m-%d"))
+        df_hist = run_scanner_v95(ALL_TICKERS, min_rs, target_date=b_date.strftime("%Y-%m-%d"))
         if not df_hist.empty:
             st.dataframe(df_hist, use_container_width=True, hide_index=True)
-        else: st.warning("Tidak ada data pada tanggal tersebut.")
