@@ -6,33 +6,31 @@ import os
 from datetime import datetime
 
 # --- 1. SETTING HALAMAN ---
-st.set_page_config(page_title="EDU-VEST TRADING SYSTEM V98", layout="wide")
+st.set_page_config(page_title="EDU-VEST TRADING SYSTEM V99", layout="wide")
 
 DB_FILE = "trading_history.csv"
+MAIN_COLS = ["Tanggal", "Stock", "Syariah", "Entry", "SL/TS"]
 
 # FUNGSI PERBAIKAN DATA: Memastikan kolom unik dan standar
 def load_and_standardize_db():
-    main_cols = ["Tanggal", "Stock", "Syariah", "Entry", "SL/TS"]
     if os.path.exists(DB_FILE):
         try:
             df = pd.read_csv(DB_FILE)
-            # 1. Hapus kolom duplikat secara fisik
+            # 1. Hapus kolom duplikat secara fisik agar tidak error
             df = df.loc[:, ~df.columns.duplicated()]
-            # 2. Rename kolom lama ke standar baru
-            rename_map = {'Emiten': 'Stock', 'Harga_Awal': 'Entry', 'Tgl': 'Tanggal'}
-            df = df.rename(columns=rename_map)
-            # 3. Filter hanya kolom utama agar tidak ada 'None'
-            df = df[df.columns.intersection(main_cols)]
+            # 2. Sinkronisasi nama kolom lama ke baru
+            df = df.rename(columns={'Emiten': 'Stock', 'Harga_Awal': 'Entry', 'Tgl': 'Tanggal'})
+            # 3. Paksa hanya ambil kolom utama agar rapi
+            df = df[df.columns.intersection(MAIN_COLS)]
             return df
         except:
-            return pd.DataFrame(columns=main_cols)
-    return pd.DataFrame(columns=main_cols)
+            return pd.DataFrame(columns=MAIN_COLS)
+    return pd.DataFrame(columns=MAIN_COLS)
 
-# Inisialisasi Database yang sudah diperbaiki
 if 'history_db' not in st.session_state:
     st.session_state.history_db = load_and_standardize_db()
 
-# --- 2. ENGINE SCANNER (Kriteria Minervini & VCP) ---
+# --- 2. ENGINE SCANNER ---
 SYARIAH_LIST = ["ANTM", "BRIS", "TLKM", "ICBP", "INDF", "UNTR", "PGAS", "EXCL", "ISAT", "KLBF", "SIDO", "MDKA", "INCO", "MBMA", "AMRT", "ACES", "HRUM", "AKRA", "MEDC", "ELSA", "BRMS", "DEWA", "BUMI", "MYOR", "CPIN", "JPFA", "SMGR", "INTP", "TPIA", "GOTO"]
 TICKERS = [f"{s}.JK" for s in SYARIAH_LIST] + ["BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "ASII.JK", "ADRO.JK"]
 
@@ -48,15 +46,10 @@ def run_edu_scanner(ticker_list, rs_threshold):
             close = df['Close'].iloc[-1]
             ma50, ma150, ma200 = df['Close'].rolling(50).mean().iloc[-1], df['Close'].rolling(150).mean().iloc[-1], df['Close'].rolling(200).mean().iloc[-1]
             rs_val = int(rs_map.get(t, 0.5) * 99)
-            # Syarat Trend Stage 2
             if close > ma150 and ma150 > ma200 and close > ma50 and rs_val >= rs_threshold:
                 red_line = ta.sma((df['High']+df['Low'])/2, 8).iloc[-1]
                 s_name = t.replace(".JK","")
-                results.append({
-                    "Tanggal": datetime.now().strftime("%Y-%m-%d"), "Stock": s_name,
-                    "Syariah": "✅" if s_name in SYARIAH_LIST else "❌",
-                    "Entry": int(close), "SL/TS": int(red_line)
-                })
+                results.append({"Tanggal": datetime.now().strftime("%Y-%m-%d"), "Stock": s_name, "Syariah": "✅" if s_name in SYARIAH_LIST else "❌", "Entry": int(close), "SL/TS": int(red_line)})
     except: pass
     return pd.DataFrame(results)
 
@@ -71,24 +64,25 @@ with tab1:
         df_res = run_edu_scanner(TICKERS, min_rs)
         if not df_res.empty:
             st.session_state.current_scan = df_res
-            st.markdown(f"**EDU-VEST REPORT** | {datetime.now().strftime('%d %b %Y')}")
             st.dataframe(df_res, use_container_width=True, hide_index=True)
-            
             if st.button("💾 SIMPAN KE PORTFOLIO"):
-                # Simpan hanya kolom yang valid untuk mencegah error duplikat
-                updated = pd.concat([st.session_state.history_db, df_res], ignore_index=True).drop_duplicates(subset=['Stock'], keep='last')
+                # PROSES SIMPAN YANG AMAN DARI DUPLIKAT
+                new_data = df_res[MAIN_COLS]
+                updated = pd.concat([st.session_state.history_db, new_data], ignore_index=True)
+                updated = updated.loc[:, ~updated.columns.duplicated()] # Hapus kolom ganda hasil concat
+                updated = updated.drop_duplicates(subset=['Stock'], keep='last')
                 updated.to_csv(DB_FILE, index=False)
                 st.session_state.history_db = updated
-                st.success("Berhasil Sinkronisasi ke Portfolio!")
-        else: st.warning("Tidak ada saham lolos kriteria breakout.")
+                st.success("Sinkronisasi Berhasil!")
+        else: st.warning("Tidak ada saham lolos kriteria.")
 
 with tab2:
     st.subheader("📊 Edu-Portfolio Tracking")
-    # Menampilkan tabel yang sudah dipaksa bersih dari kolom sampah
+    # Tampilan tabel dipastikan bersih dan unik
     if not st.session_state.history_db.empty:
         st.dataframe(st.session_state.history_db, use_container_width=True, hide_index=True)
-        if st.button("🗑️ Reset Database (Hapus Semua)"):
+        if st.button("🗑️ Reset Database Total"):
             if os.path.exists(DB_FILE): os.remove(DB_FILE)
-            st.session_state.history_db = pd.DataFrame(columns=["Tanggal", "Stock", "Syariah", "Entry", "SL/TS"])
+            st.session_state.history_db = pd.DataFrame(columns=MAIN_COLS)
             st.rerun()
-    else: st.info("Database Kosong. Jalankan scanner untuk mengisi.")
+    else: st.info("Database Kosong.")
