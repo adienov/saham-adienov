@@ -3,111 +3,126 @@ import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # --- 1. SETTING HALAMAN & DATABASE ---
-st.set_page_config(page_title="Noris Trading System V104", layout="wide")
+st.set_page_config(page_title="Noris Trading System V79", layout="wide")
 
 DB_FILE = "trading_history.csv"
 
 def load_db():
     if os.path.exists(DB_FILE):
-        df = pd.read_csv(DB_FILE)
-        return df.loc[:, ~df.columns.duplicated()]
-    return pd.DataFrame(columns=["Tgl", "Stock", "Syariah", "Entry", "SL/TS"])
+        return pd.read_csv(DB_FILE)
+    return pd.DataFrame(columns=["Tanggal", "Emiten", "Harga_Awal", "SL_Awal", "Status_Awal", "Syariah"])
 
-# --- 2. ENGINE SCANNER ---
+if 'history_db' not in st.session_state:
+    st.session_state.history_db = load_db()
+
+# --- 2. DATABASE EMITEN SYARIAH ---
 SYARIAH_LIST = ["ANTM", "BRIS", "TLKM", "ICBP", "INDF", "UNTR", "PGAS", "EXCL", "ISAT", "KLBF", "SIDO", "MDKA", "INCO", "MBMA", "AMRT", "ACES", "HRUM", "AKRA", "MEDC", "ELSA", "BRMS", "DEWA", "BUMI", "MYOR", "CPIN", "JPFA", "SMGR", "INTP", "TPIA", "GOTO"]
-TICKERS = [f"{s}.JK" for s in SYARIAH_LIST] + ["BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "ASII.JK", "ADRO.JK"]
 
+# --- 3. ENGINE SCANNER ---
 @st.cache_data(ttl=300)
-def run_scanner_v104(ticker_list, rs_threshold):
+def scan_engine(ticker_list, rs_threshold, target_date=None):
     results = []
+    end_date = datetime.now() if target_date is None else datetime.strptime(target_date, "%Y-%m-%d") + timedelta(days=1)
+    
     try:
-        data_batch = yf.download(ticker_list, period="1y", progress=False)['Close']
+        data_batch = yf.download(ticker_list, start=end_date - timedelta(days=365), end=end_date, progress=False)['Close']
         rs_map = (data_batch.iloc[-1]/data_batch.iloc[0]-1).rank(pct=True).to_dict()
-        for t in ticker_list:
-            df = yf.Ticker(t).history(period="1y")
+    except: rs_map = {}
+
+    for t in ticker_list:
+        try:
+            emiten_code = t.replace(".JK","")
+            df = yf.Ticker(t).history(start=end_date - timedelta(days=365), end=end_date)
             if len(df) < 200: continue
             
             close = df['Close'].iloc[-1]
-            ma20 = df['Close'].rolling(20).mean().iloc[-1] # Filter Baru
-            ma50 = df['Close'].rolling(50).mean().iloc[-1]
-            ma150 = df['Close'].rolling(150).mean().iloc[-1]
-            ma200 = df['Close'].rolling(200).mean().iloc[-1]
+            ma50, ma150, ma200 = df['Close'].rolling(50).mean().iloc[-1], df['Close'].rolling(150).mean().iloc[-1], df['Close'].rolling(200).mean().iloc[-1]
             rs_val = int(rs_map.get(t, 0.5) * 99)
             
-            # KRITERIA: Stage 2 + Kekuatan Jangka Pendek (MA20)
-            if close > ma20 and close > ma50 and ma150 > ma200 and close > ma150 and rs_val >= rs_threshold:
+            if close > ma150 and ma150 > ma200 and close > ma50 and rs_val >= rs_threshold:
                 red_line = ta.sma((df['High']+df['Low'])/2, 8).iloc[-1]
-                s_name = t.replace(".JK","")
+                is_syariah = "✅" if emiten_code in SYARIAH_LIST else "❌"
+                
                 results.append({
-                    "Pilih": False, 
-                    "Tgl": datetime.now().strftime("%Y-%m-%d"),
-                    "Stock": s_name,
-                    "Syariah": "✅" if s_name in SYARIAH_LIST else "❌",
-                    "Entry": int(close),
-                    "SL/TS": int(red_line),
-                    "Chart": f"https://www.tradingview.com/chart/?symbol=IDX:{s_name}"
+                    "Tanggal": end_date.strftime("%Y-%m-%d") if target_date is None else target_date,
+                    "Emiten": emiten_code,
+                    "Syariah": is_syariah,
+                    "Harga_Awal": int(close),
+                    "SL_Awal": int(red_line),
+                    "Status": "🚀 BREAKOUT" if close > df['High'].rolling(20).max().shift(1).iloc[-1] else "🟢 REVERSAL"
                 })
-    except: pass
+        except: continue
     return pd.DataFrame(results)
 
-# --- 3. TAMPILAN UTAMA ---
-st.title("📈 Noris Trading System V104")
-tab1, tab2 = st.tabs(["🔍 NORIS INCARAN", "📊 NORIS PETA (PORTFOLIO)"])
+# --- 4. SIDEBAR ---
+st.sidebar.title("⚙️ Filter")
+mode = st.sidebar.multiselect("Kelompok:", ["Syariah (ISSI)", "Non-Syariah"], default=["Syariah (ISSI)", "Non-Syariah"])
+min_rs = st.sidebar.slider("Min. RS Rating", 0, 99, 70)
+
+selected_tickers = []
+if "Syariah (ISSI)" in mode: selected_tickers += [f"{s}.JK" for s in SYARIAH_LIST]
+if "Non-Syariah" in mode: selected_tickers += ["BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "ASII.JK", "ADRO.JK", "PTBA.JK", "UNVR.JK"]
+
+if st.sidebar.button("🗑️ Reset Database"):
+    if os.path.exists(DB_FILE): os.remove(DB_FILE)
+    st.session_state.history_db = pd.DataFrame(columns=["Tanggal", "Emiten", "Harga_Awal", "SL_Awal", "Status_Awal", "Syariah"])
+    st.rerun()
+
+# --- 5. TAMPILAN UTAMA ---
+st.title("📈 Noris Trading System V79")
+tab1, tab2, tab3 = st.tabs(["🔍 LIVE SCANNER", "📊 PERFORMANCE TRACKER", "⏮️ BACKTEST"])
 
 with tab1:
-    min_rs = st.sidebar.slider("Min. RS Rating", 0, 99, 70)
     if st.button("🚀 JALANKAN SCANNER"):
-        with st.spinner("Sedang memfilter market dengan MA20..."):
-            df_res = run_scanner_v104(TICKERS, min_rs)
-            if not df_res.empty:
-                st.session_state.current_scan = df_res
-            else: st.warning("Tidak ada saham yang memenuhi kriteria (termasuk filter MA20).")
-
-    if 'current_scan' in st.session_state:
-        st.write("### 📋 Hasil Incaran (Sudah Filter MA20):")
-        edited_df = st.data_editor(
-            st.session_state.current_scan,
-            column_config={
-                "Pilih": st.column_config.CheckboxColumn("Pilih", default=False),
-                "Chart": st.column_config.LinkColumn("TradingView", display_text="📈 Buka")
-            },
-            disabled=["Tgl", "Stock", "Syariah", "Entry", "SL/TS"],
-            hide_index=True,
-            use_container_width=True
-        )
-        
-        if st.button("💾 SIMPAN SAHAM TERPILIH"):
-            to_save = edited_df[edited_df["Pilih"] == True].drop(columns=["Pilih", "Chart"])
-            if not to_save.empty:
-                current_db = load_db()
-                updated_db = pd.concat([current_db, to_save], ignore_index=True).drop_duplicates(subset=['Stock'], keep='last')
+        df_live = scan_engine(selected_tickers, min_rs)
+        if not df_live.empty:
+            st.session_state.current_scan = df_live
+            st.dataframe(df_live, use_container_width=True, hide_index=True)
+            if st.button("💾 SIMPAN KE DATABASE"):
+                updated_db = pd.concat([st.session_state.history_db, st.session_state.current_scan], ignore_index=True).drop_duplicates(subset=['Emiten'], keep='last')
                 updated_db.to_csv(DB_FILE, index=False)
                 st.session_state.history_db = updated_db
-                st.success(f"✅ {len(to_save)} Saham berhasil masuk ke Peta!")
-            else: st.warning("Centang saham yang ingin disimpan.")
+                st.success("Tersimpan!")
+        else: st.warning("Tidak ada saham lolos kriteria.")
 
 with tab2:
-    st.subheader("📊 Noris Peta (Portfolio)")
-    db_show = load_db()
-    if not db_show.empty:
-        final_list = []
-        for _, row in db_show.iterrows():
+    st.subheader("📊 Performance Tracker")
+    db = st.session_state.history_db
+    if not db.empty:
+        track_list = []
+        for _, row in db.iterrows():
             try:
-                curr_p = yf.Ticker(f"{row['Stock']}.JK").history(period="1d")['Close'].iloc[-1]
-                gain = ((curr_p - row['Entry']) / row['Entry']) * 100
-                final_list.append({
-                    "Tgl": row['Tgl'], "Stock": row['Stock'], "Syariah": row['Syariah'],
-                    "Entry": row['Entry'], "Last": int(curr_p),
-                    "G/L%": f"{'🟢' if gain >= 0 else '🔴'} {gain:+.2f}%", "SL/TS": row['SL/TS']
+                curr_p = yf.Ticker(f"{row['Emiten']}.JK").history(period="1d")['Close'].iloc[-1]
+                gain = ((curr_p - row['Harga_Awal']) / row['Harga_Awal']) * 100
+                # Kolom Status diganti dengan Label Berwarna Merah/Hijau berdasarkan G/L
+                status_label = f"🟢 {gain:+.2f}%" if gain > 0 else f"🔴 {gain:+.2f}%"
+                track_list.append({
+                    "Tgl": row['Tanggal'], "Emiten": row['Emiten'], "Syariah": row['Syariah'], 
+                    "Entry": row['Harga_Awal'], "Last": int(curr_p), "G/L%": status_label,
+                    "Chart": f"https://www.tradingview.com/chart/?symbol=IDX:{row['Emiten']}"
                 })
             except: pass
-        st.dataframe(pd.DataFrame(final_list), use_container_width=True, hide_index=True)
-        
-        if st.button("🗑️ RESET PETA"):
-            if os.path.exists(DB_FILE): os.remove(DB_FILE)
-            st.session_state.history_db = pd.DataFrame(columns=["Tgl", "Stock", "Syariah", "Entry", "SL/TS"])
-            st.rerun()
-    else: st.info("Peta Kosong.")
+        st.dataframe(pd.DataFrame(track_list), column_config={"Chart": st.column_config.LinkColumn("TV", display_text="📈 Buka")}, use_container_width=True, hide_index=True)
+    else: st.info("Database kosong.")
+
+with tab3:
+    st.subheader("⏮️ Backtest Mundur")
+    b_date = st.date_input("Pilih Tanggal:", datetime.now() - timedelta(days=30))
+    if st.button("⏪ SCAN TANGGAL TERPILIH"):
+        df_hist = scan_engine(selected_tickers, min_rs, target_date=b_date.strftime("%Y-%m-%d"))
+        if not df_hist.empty:
+            bt_results = []
+            for _, r in df_hist.iterrows():
+                try:
+                    now_p = yf.Ticker(f"{r['Emiten']}.JK").history(period="1d")['Close'].iloc[-1]
+                    diff = ((now_p - r['Harga_Awal']) / r['Harga_Awal']) * 100
+                    status_bt = f"🟢 {diff:+.2f}%" if diff > 0 else f"🔴 {diff:+.2f}%"
+                    bt_results.append({
+                        "Tgl": r['Tanggal'], "Emiten": r['Emiten'], "Syariah": r['Syariah'], 
+                        "Harga Dulu": r['Harga_Awal'], "Harga Kini": int(now_p), "G/L%": status_bt
+                    })
+                except: pass
+            st.dataframe(pd.DataFrame(bt_results), use_container_width=True, hide_index=True)
