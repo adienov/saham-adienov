@@ -6,13 +6,14 @@ import os
 from datetime import datetime
 
 # --- 1. SETTING HALAMAN & DATABASE ---
-st.set_page_config(page_title="Noris Trading System V102", layout="wide")
+st.set_page_config(page_title="Noris Trading System V103", layout="wide")
 
 DB_FILE = "trading_history.csv"
 
 def load_db():
     if os.path.exists(DB_FILE):
         df = pd.read_csv(DB_FILE)
+        # Menghapus kolom duplikat secara otomatis agar tidak error
         return df.loc[:, ~df.columns.duplicated()]
     return pd.DataFrame(columns=["Tgl", "Stock", "Syariah", "Entry", "SL/TS"])
 
@@ -21,7 +22,7 @@ SYARIAH_LIST = ["ANTM", "BRIS", "TLKM", "ICBP", "INDF", "UNTR", "PGAS", "EXCL", 
 TICKERS = [f"{s}.JK" for s in SYARIAH_LIST] + ["BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "ASII.JK", "ADRO.JK"]
 
 @st.cache_data(ttl=300)
-def run_scanner_v102(ticker_list, rs_threshold):
+def run_scanner_v103(ticker_list, rs_threshold):
     results = []
     try:
         data_batch = yf.download(ticker_list, period="1y", progress=False)['Close']
@@ -36,7 +37,7 @@ def run_scanner_v102(ticker_list, rs_threshold):
                 red_line = ta.sma((df['High']+df['Low'])/2, 8).iloc[-1]
                 s_name = t.replace(".JK","")
                 results.append({
-                    "Pilih": False, # Untuk Checkbox
+                    "Pilih": False, 
                     "Tgl": datetime.now().strftime("%Y-%m-%d"),
                     "Stock": s_name,
                     "Syariah": "✅" if s_name in SYARIAH_LIST else "❌",
@@ -48,20 +49,20 @@ def run_scanner_v102(ticker_list, rs_threshold):
     return pd.DataFrame(results)
 
 # --- 3. TAMPILAN UTAMA ---
-st.title("📈 Noris Trading System V102")
+st.title("📈 Noris Trading System V103")
 tab1, tab2 = st.tabs(["🔍 NORIS INCARAN", "📊 NORIS PETA (PORTFOLIO)"])
 
 with tab1:
     min_rs = st.sidebar.slider("Min. RS Rating", 0, 99, 70)
     if st.button("🚀 JALANKAN SCANNER"):
-        df_res = run_scanner_v102(TICKERS, min_rs)
-        if not df_res.empty:
-            st.session_state.current_scan = df_res
-        else: st.warning("Tidak ada saham lolos kriteria.")
+        with st.spinner("Menganalisa Market..."):
+            df_res = run_scanner_v103(TICKERS, min_rs)
+            if not df_res.empty:
+                st.session_state.current_scan = df_res
+            else: st.warning("Tidak ada saham lolos kriteria.")
 
     if 'current_scan' in st.session_state:
-        st.write("### 📋 Pilih Saham Berdasarkan Chart TV:")
-        # Tabel Interaktif untuk memilih saham
+        st.write("### 📋 Pilih Saham (Cek Chart TV Dahulu):")
         edited_df = st.data_editor(
             st.session_state.current_scan,
             column_config={
@@ -73,31 +74,43 @@ with tab1:
             use_container_width=True
         )
         
-        if st.button("💾 SIMPAN SAHAM TERPILIH KE PETA"):
+        if st.button("💾 SIMPAN KE PETA"):
             to_save = edited_df[edited_df["Pilih"] == True].drop(columns=["Pilih", "Chart"])
             if not to_save.empty:
                 current_db = load_db()
                 updated_db = pd.concat([current_db, to_save], ignore_index=True).drop_duplicates(subset=['Stock'], keep='last')
                 updated_db.to_csv(DB_FILE, index=False)
                 st.session_state.history_db = updated_db
-                st.success(f"✅ {len(to_save)} Saham berhasil dipetakan!")
-            else:
-                st.warning("Pilih minimal satu saham (centang kolom Pilih).")
+                st.success(f"✅ {len(to_save)} Saham berhasil disimpan!")
+            else: st.warning("Silakan pilih saham terlebih dahulu.")
 
 with tab2:
-    st.subheader("📊 Noris Peta (Portfolio Tracking)")
+    st.subheader("📊 Noris Peta (Portfolio)")
     db_show = load_db()
     if not db_show.empty:
-        track_list = []
-        for _, row in db_show.iterrows():
-            try:
-                curr_p = yf.Ticker(f"{row['Stock']}.JK").history(period="1d")['Close'].iloc[-1]
-                gain = ((curr_p - row['Entry']) / row['Entry']) * 100
-                track_list.append({
-                    "Tgl": row['Tgl'], "Stock": row['Stock'], "Syariah": row['Syariah'],
-                    "Entry": row['Entry'], "Last": int(curr_p),
-                    "G/L%": f"{'🟢' if gain >= 0 else '🔴'} {gain:+.2f}%", "SL/TS": row['SL/TS']
-                })
-            except: pass
-        st.dataframe(pd.DataFrame(track_list), use_container_width=True, hide_index=True)
-    else: st.info("Portfolio Kosong.")
+        final_list = []
+        with st.spinner("Update harga pasar..."):
+            for _, row in db_show.iterrows():
+                try:
+                    curr_p = yf.Ticker(f"{row['Stock']}.JK").history(period="1d")['Close'].iloc[-1]
+                    gain = ((curr_p - row['Entry']) / row['Entry']) * 100
+                    final_list.append({
+                        "Tgl": row['Tgl'], "Stock": row['Stock'], "Syariah": row['Syariah'],
+                        "Entry": row['Entry'], "Last": int(curr_p),
+                        "G/L%": f"{'🟢' if gain >= 0 else '🔴'} {gain:+.2f}%", "SL/TS": row['SL/TS']
+                    })
+                except: pass
+        
+        if final_list:
+            st.dataframe(pd.DataFrame(final_list), use_container_width=True, hide_index=True)
+            
+            # --- TOMBOL RESET PETA ---
+            st.write("---")
+            if st.button("🗑️ RESET PETA (Hapus Semua)"):
+                if os.path.exists(DB_FILE):
+                    os.remove(DB_FILE)
+                st.session_state.history_db = pd.DataFrame(columns=["Tgl", "Stock", "Syariah", "Entry", "SL/TS"])
+                st.success("Database berhasil dibersihkan.")
+                st.rerun()
+    else:
+        st.info("Peta masih kosong. Silakan simpan saham dari tab INCARAN.")
