@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timedelta
 
 # --- 1. SETTING HALAMAN & DATABASE ---
-st.set_page_config(page_title="Noris Trading System V79", layout="wide")
+st.set_page_config(page_title="Noris Trading System V80", layout="wide")
 
 DB_FILE = "trading_history.csv"
 
@@ -52,7 +52,8 @@ def scan_engine(ticker_list, rs_threshold, target_date=None):
                     "Syariah": is_syariah,
                     "Harga_Awal": int(close),
                     "SL_Awal": int(red_line),
-                    "Status": "🚀 BREAKOUT" if close > df['High'].rolling(20).max().shift(1).iloc[-1] else "🟢 REVERSAL"
+                    "Status": "🚀 BREAKOUT" if close > df['High'].rolling(20).max().shift(1).iloc[-1] else "🟢 REVERSAL",
+                    "Chart": f"https://www.tradingview.com/chart/?symbol=IDX:{emiten_code}"
                 })
         except: continue
     return pd.DataFrame(results)
@@ -72,7 +73,7 @@ if st.sidebar.button("🗑️ Reset Database"):
     st.rerun()
 
 # --- 5. TAMPILAN UTAMA ---
-st.title("📈 Noris Trading System V79")
+st.title("📈 Noris Trading System V80")
 tab1, tab2, tab3 = st.tabs(["🔍 LIVE SCANNER", "📊 PERFORMANCE TRACKER", "⏮️ BACKTEST"])
 
 with tab1:
@@ -80,7 +81,8 @@ with tab1:
         df_live = scan_engine(selected_tickers, min_rs)
         if not df_live.empty:
             st.session_state.current_scan = df_live
-            st.dataframe(df_live, use_container_width=True, hide_index=True)
+            # Menampilkan Link TV di Live Scanner
+            st.dataframe(df_live, column_config={"Chart": st.column_config.LinkColumn("TV", display_text="📈 Buka")}, use_container_width=True, hide_index=True)
             if st.button("💾 SIMPAN KE DATABASE"):
                 updated_db = pd.concat([st.session_state.history_db, st.session_state.current_scan], ignore_index=True).drop_duplicates(subset=['Emiten'], keep='last')
                 updated_db.to_csv(DB_FILE, index=False)
@@ -97,7 +99,6 @@ with tab2:
             try:
                 curr_p = yf.Ticker(f"{row['Emiten']}.JK").history(period="1d")['Close'].iloc[-1]
                 gain = ((curr_p - row['Harga_Awal']) / row['Harga_Awal']) * 100
-                # Kolom Status diganti dengan Label Berwarna Merah/Hijau berdasarkan G/L
                 status_label = f"🟢 {gain:+.2f}%" if gain > 0 else f"🔴 {gain:+.2f}%"
                 track_list.append({
                     "Tgl": row['Tanggal'], "Emiten": row['Emiten'], "Syariah": row['Syariah'], 
@@ -106,7 +107,6 @@ with tab2:
                 })
             except: pass
         st.dataframe(pd.DataFrame(track_list), column_config={"Chart": st.column_config.LinkColumn("TV", display_text="📈 Buka")}, use_container_width=True, hide_index=True)
-    else: st.info("Database kosong.")
 
 with tab3:
     st.subheader("⏮️ Backtest Mundur")
@@ -122,7 +122,8 @@ with tab3:
                     status_bt = f"🟢 {diff:+.2f}%" if diff > 0 else f"🔴 {diff:+.2f}%"
                     bt_results.append({
                         "Tgl": r['Tanggal'], "Emiten": r['Emiten'], "Syariah": r['Syariah'], 
-                        "Harga Dulu": r['Harga_Awal'], "Harga Kini": int(now_p), "G/L%": status_bt
+                        "Harga Dulu": r['Harga_Awal'], "Harga Kini": int(now_p), "G/L%": status_bt,
+                        "Chart": f"https://www.tradingview.com/chart/?symbol=IDX:{r['Emiten']}"
                     })
                 except: pass
-            st.dataframe(pd.DataFrame(bt_results), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(bt_results), column_config={"Chart": st.column_config.LinkColumn("TV", display_text="📈 Buka")}, use_container_width=True, hide_index=True)
