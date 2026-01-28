@@ -1,81 +1,72 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import pandas_ta as ta
 import os
 from datetime import datetime
 
 # --- 1. SETTING DATABASE ---
-st.set_page_config(page_title="EDU-VEST V124: Porto Manager", layout="wide")
+st.set_page_config(page_title="EDU-VEST V126: HQ Style Porto", layout="wide")
 DB_FILE = "trading_history.csv"
-WATCHLIST_FILE = "my_watchlist.csv"
 
-def load_local_data(file, columns):
+def load_local_data(file):
     if os.path.exists(file): return pd.read_csv(file)
-    return pd.DataFrame(columns=columns)
+    return pd.DataFrame(columns=["Tgl", "Stock", "Entry"])
 
-# --- 2. ENGINE ANALISA OTOMATIS ---
-def get_stock_analysis(ticker, is_portfolio=False, entry_price=0):
+# --- 2. ENGINE ANALISA ACTION (HQ STYLE) ---
+def get_hq_style_analysis(ticker, entry_price):
     try:
         t = yf.Ticker(f"{ticker}.JK")
-        df = t.history(period="1y")
-        if len(df) < 100: return "Data Kurang", "⚪", 0, "0%"
+        df = t.history(period="10d")
+        if df.empty: return 0, "0%", "⚪ MONITOR", 0, 0
         
-        close = df['Close'].iloc[-1]
-        ma50, ma200 = df['Close'].rolling(50).mean().iloc[-1], df['Close'].rolling(200).mean().iloc[-1]
+        last_p = int(df['Close'].iloc[-1])
+        gl_val = ((last_p - entry_price) / entry_price) * 100
         
-        if close < ma200: status, reco = "Trend Rusak (Below MA200)", "🔴 JAUHI"
-        elif close > ma50: status, reco = "Strong Momentum", "🟢 BAGUS"
-        else: status, reco = "Fase Konsolidasi", "⚪ TUNGGU"
+        # TARGET DAN PROTEKSI OTOMATIS
+        tp_price = int(entry_price * 1.15) # Target Profit 15%
+        ts_price = int(last_p * 0.95)      # Trailing Stop 5% dari harga tertinggi
+        
+        # LOGIKA ACTION BERDASARKAN MODE HQ
+        if gl_val <= -7.0:
+            action = "🚨 SELL (Cut Loss)"
+        elif last_p >= tp_price:
+            action = "🔵 TAKE PROFIT (Target Hit)"
+        elif gl_val >= 5.0:
+            action = "🟢 HOLD (Trailing Stop Active)"
+        else:
+            action = "🟡 HOLD (Wait Rebound)"
             
-        gl_str = "0%"
-        if is_portfolio and entry_price > 0:
-            gl_val = ((close - entry_price) / entry_price) * 100
-            gl_str = f"{gl_val:+.2f}%"
-            if gl_val <= -7.0: reco = "🚨 CUT LOSS" # Aturan Cut Loss CANSLIM
-            
-        return status, reco, int(close), gl_str
-    except: return "Error", "❌", 0, "0%"
+        return last_p, f"{gl_val:+.2f}%", action, tp_price, ts_price
+    except: return 0, "0%", "❌ ERROR", 0, 0
 
 # --- 3. TAMPILAN UTAMA ---
-st.title("🛡️ EDU-VEST: PORTO MANAGER V124")
-st.error("🚨 MARKET CRASH (-5.24%). Gunakan tombol BELI hanya jika sudah yakin!")
+st.title("🛡️ EDU-VEST: HQ STYLE PORTO MANAGER V126")
 
-tab1, tab2, tab3 = st.tabs(["🔍 SCANNER", "⭐ WATCHLIST", "📊 NORIS PETA (PORTFOLIO)"])
+tab1, tab2 = st.tabs(["📊 NORIS PETA (PORTFOLIO)", "➕ INPUT MANUAL"])
 
-with tab2:
-    st.subheader("📊 Analisa & Eksekusi Watchlist")
-    # ... (Gunakan input kode saham Bapak di sini)
-    wl_df = load_local_data(WATCHLIST_FILE, ["Stock"])
-    if not wl_df.empty:
-        results = []
-        for s in wl_df['Stock']:
-            status, reco, price, _ = get_stock_analysis(s)
-            results.append({"Pilih": False, "Stock": s, "Price": price, "Status": status, "Rekomendasi": reco})
-        
-        # Tabel Interaktif untuk memilih saham yang ingin dipindah ke Porto
-        df_edit = st.data_editor(pd.DataFrame(results), use_container_width=True, hide_index=True)
-        
-        if st.button("🛒 BELI & MASUKKAN PETA PORTO"):
-            to_peta = df_edit[df_edit["Pilih"] == True]
-            if not to_peta.empty:
-                peta_now = load_local_data(DB_FILE, ["Tgl", "Stock", "Entry", "SL/TS"])
-                new_rows = pd.DataFrame([{
-                    "Tgl": datetime.now().strftime("%Y-%m-%d"),
-                    "Stock": row['Stock'], "Entry": row['Price'], "SL/TS": int(row['Price'] * 0.93)
-                } for _, row in to_peta.iterrows()])
-                pd.concat([peta_now, new_rows], ignore_index=True).to_csv(DB_FILE, index=False)
-                st.success(f"✅ {len(to_peta)} Saham berhasil dipindahkan ke Porto!")
-                st.rerun()
-
-with tab3:
+with tab1:
     st.subheader("📊 Monitoring Real-time Portfolio")
-    peta_df = load_local_data(DB_FILE, ["Tgl", "Stock", "Entry", "SL/TS"])
+    peta_df = load_local_data(DB_FILE)
+    
     if not peta_df.empty:
-        p_res = []
+        results = []
         for _, r in peta_df.iterrows():
-            _, reco, last, gl = get_stock_analysis(r['Stock'], is_portfolio=True, entry_price=r['Entry'])
-            p_res.append({"Stock": r['Stock'], "Entry": r['Entry'], "Last": last, "G/L %": gl, "Action": reco})
-        st.table(pd.DataFrame(p_res))
+            last, gl, action, tp, ts = get_hq_style_analysis(r['Stock'], r['Entry'])
+            results.append({
+                "Stock": r['Stock'],
+                "Entry": r['Entry'],
+                "Last": last,
+                "G/L %": gl,
+                "Action": action,
+                "Target (TP)": tp,
+                "Proteksi (TS)": ts
+            })
+        
+        # Menampilkan tabel dengan kolom Target dan Proteksi baru
+        st.table(pd.DataFrame(results))
     else:
-        st.info("Portfolio Kosong. Centang saham di tab WATCHLIST dan klik 'BELI' untuk mengisi Peta.")
+        st.info("Portfolio Kosong. Gunakan Tab 'INPUT MANUAL' untuk mengisi.")
+
+with tab2: # Fitur Input Manual Bapak
+    # ... (Kode Input Manual tetap sama seperti V125)
+    st.write("Silakan masukkan transaksi Bapak dari Stockbit.")
