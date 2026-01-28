@@ -13,15 +13,11 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- KONFIGURASI KEAMANAN (PIN) ---
-# Silakan ganti angka ini dengan PIN rahasia Bapak
-SECRET_PIN = "135790" 
+# PIN SECURITY (Ganti sesuai keinginan Bapak)
+SECRET_PIN = "2026" 
 
-# File Database
 DB_FILE = "trading_history.csv"
 WATCHLIST_FILE = "my_watchlist.csv"
-
-# Daftar Saham Universe
 SYARIAH_TICKERS = ["ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "MDKA.JK", "INCO.JK", "MEDC.JK", "BRMS.JK", "DEWA.JK", "BUMI.JK", "ADRO.JK", "PTBA.JK", "MYOR.JK", "JPFA.JK"]
 
 def load_data(file, columns):
@@ -119,9 +115,9 @@ try:
     else: st.success(f"🟢 MARKET: AMAN ({chg:.2f}%) - Strategi Normal.")
 except: pass
 
-tab1, tab2, tab3 = st.tabs(["🔍 STEP 1: SCREENER", "⚡ STEP 2: EXECUTION", "🔐 STEP 3: PORTFOLIO (LOCKED)"])
+tab1, tab2, tab3 = st.tabs(["🔍 STEP 1: SCREENER", "⚡ STEP 2: EXECUTION", "🔐 STEP 3: PORTFOLIO"])
 
-# --- TAB 1: SCREENER (PUBLIC) ---
+# --- TAB 1: SCREENER ---
 with tab1:
     st.header("🔍 Radar Saham")
     mode = st.radio("Pilih Strategi:", ["Radar Diskon (Market Crash)", "Reversal (Pantulan)", "Breakout (Tren Naik)", "Swing (Koreksi Sehat)"], horizontal=True)
@@ -163,12 +159,12 @@ with tab1:
                     st.rerun()
                 else: st.toast("Saham sudah ada di Watchlist.")
 
-# --- TAB 2: WATCHLIST (PUBLIC) ---
+# --- TAB 2: WATCHLIST (SIMULASI GURU & EXECUTION) ---
 with tab2:
     col_h1, col_h2 = st.columns([3, 1])
     with col_h1:
-        st.header("⚡ Kalkulator Eksekusi")
-        st.caption("Hitung lot aman sebelum beli.")
+        st.header("⚡ Kalkulator & Eksekusi")
+        st.caption("Analisa lot sebelum membeli.")
     with col_h2:
         if st.button("🗑️ RESET WATCHLIST", type="secondary"):
             if os.path.exists(WATCHLIST_FILE): os.remove(WATCHLIST_FILE); st.rerun()
@@ -188,7 +184,7 @@ with tab2:
                     c3.markdown(f"**Grafik:**\n[Buka TradingView]({d['TV']})")
                     st.divider()
                     
-                    st.write("💰 **Money Management**")
+                    st.write("💰 **Simulasi Lot**")
                     col_in1, col_in2, col_in3 = st.columns(3)
                     modal = col_in1.number_input("Modal (Rp):", value=10000000, step=1000000, key=f"mod_{d['Stock']}")
                     col_in1.caption(f"💵 Terbaca: **Rp {int(modal):,}**")
@@ -204,53 +200,60 @@ with tab2:
                     
                     st.divider()
                     col_b1, col_b2 = st.columns([1, 3])
+                    
                     if col_b1.button("Hapus", key=f"del_{d['Stock']}"):
                         wl = wl[wl.Stock != d['Stock']]; wl.to_csv(WATCHLIST_FILE, index=False); st.rerun()
-                    
-                    # NOTE: Tombol beli tetap ada agar guru bisa simulasi, 
-                    # tapi datanya akan masuk ke database rahasia yang tidak bisa mereka lihat.
-                    if col_b2.button(f"🛒 BELI {d['Stock']} SEKARANG", type="primary", key=f"buy_{d['Stock']}"):
+                        
+                    # --- TOMBOL BELI DENGAN PESAN KHUSUS ---
+                    if col_b2.button(f"🛒 SIMULASI BELI {d['Stock']}", type="primary", key=f"buy_{d['Stock']}"):
+                        # 1. Catat ke Database (Untuk Admin/Bapak)
                         pd.concat([load_data(DB_FILE, ["Tgl", "Stock", "Entry"]), pd.DataFrame([{"Tgl": datetime.now().strftime("%Y-%m-%d"), "Stock": d['Stock'], "Entry": d['Price']}])], ignore_index=True).to_csv(DB_FILE, index=False)
-                        wl = wl[wl.Stock != d['Stock']]; wl.to_csv(WATCHLIST_FILE, index=False); st.balloons(); st.success("Masuk Portfolio!"); st.rerun()
+                        
+                        # 2. Hapus dari Watchlist
+                        wl = wl[wl.Stock != d['Stock']]
+                        wl.to_csv(WATCHLIST_FILE, index=False)
+                        
+                        # 3. TAMPILKAN INFO EDUKATIF
+                        st.balloons()
+                        st.success(f"✅ **BERHASIL DICATAT!** Saham {d['Stock']} di harga {d['Price']:,} telah masuk ke Tab Portfolio (Terkunci).")
+                        
+                        # 4. PESAN UNTUK ORANG UMUM / GURU
+                        st.warning(f"""
+                        🔔 **PENTING UNTUK USER:**
+                        Ini hanya simulasi pencatatan di aplikasi ini.
+                        
+                        👉 **SILAKAN EKSEKUSI PEMBELIAN ASLI DI SEKURITAS ANDA.**
+                        Buka aplikasi (IPOT / Stockbit / Ajaib / dll) dan input Order Buy untuk **{d['Stock']}** sekarang.
+                        """)
+                        
+                        # Stop script sementara agar user membaca pesan
+                        st.stop() 
 
 # --- TAB 3: PORTFOLIO (PIN PROTECTED) ---
 with tab3:
     st.header("🔐 Portfolio Administrator")
     
-    # Inisialisasi Status Login
-    if 'porto_unlocked' not in st.session_state:
-        st.session_state['porto_unlocked'] = False
+    if 'porto_unlocked' not in st.session_state: st.session_state['porto_unlocked'] = False
 
-    # Logika Kunci / Buka
     if not st.session_state['porto_unlocked']:
-        st.warning("🔒 Halaman ini terkunci karena berisi data aset pribadi.")
-        
+        st.warning("🔒 Halaman ini terkunci. Hanya Admin (Pak Adien) yang bisa mengakses.")
         with st.form("login_form"):
             user_pin = st.text_input("Masukkan PIN Keamanan:", type="password")
             if st.form_submit_button("BUKA AKSES"):
                 if user_pin == SECRET_PIN:
-                    st.session_state['porto_unlocked'] = True
-                    st.success("Akses Diterima.")
-                    st.rerun()
-                else:
-                    st.error("PIN Salah. Akses Ditolak.")
+                    st.session_state['porto_unlocked'] = True; st.success("Akses Diterima."); st.rerun()
+                else: st.error("PIN Salah.")
     else:
-        # --- KONTEN PORTFOLIO (HANYA MUNCUL JIKA PIN BENAR) ---
         col_p1, col_p2 = st.columns([3, 1])
         with col_p1: st.success("✅ Akses Administrator Terbuka")
         with col_p2:
-            if st.button("🔒 KUNCI KEMBALI"):
-                st.session_state['porto_unlocked'] = False
-                st.rerun()
+            if st.button("🔒 KUNCI KEMBALI"): st.session_state['porto_unlocked'] = False; st.rerun()
         
-        # Tombol Reset Total (Hanya muncul jika sudah login)
         if st.button("🚨 RESET TOTAL PORTFOLIO", type="primary"):
             if os.path.exists(DB_FILE): os.remove(DB_FILE); st.rerun()
         
         df_p = load_data(DB_FILE, ["Tgl", "Stock", "Entry"])
-        
-        if df_p.empty:
-            st.info("Belum ada aset.")
+        if df_p.empty: st.info("Belum ada aset.")
         else:
             st.metric("Total Emiten", f"{len(df_p)}")
             st.write("---")
