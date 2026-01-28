@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 
 # --- 1. SETTING UTAMA ---
-st.set_page_config(page_title="EDU-VEST V147: CLEAR NUMBERS", layout="wide")
+st.set_page_config(page_title="EDU-VEST V148: READABLE", layout="wide")
 DB_FILE = "trading_history.csv"
 WATCHLIST_FILE = "my_watchlist.csv"
 
@@ -96,7 +96,7 @@ def get_porto_analysis(ticker, entry_price):
     except: return 0, "0%", "-"
 
 # --- 4. TAMPILAN DASHBOARD ---
-st.title("💎 EDU-VEST: CLEAR NUMBERS V147")
+st.title("💎 EDU-VEST: V148 (READABLE NUMBERS)")
 
 try:
     ihsg = yf.Ticker("^JKSE").history(period="2d")
@@ -105,11 +105,11 @@ try:
     else: st.success(f"🟢 MARKET NORMAL ({chg:.2f}%)")
 except: pass
 
-tab1, tab2, tab3 = st.tabs(["1️⃣ SCREENER", "2️⃣ WATCHLIST & EKSEKUSI", "3️⃣ PETA PORTO"])
+tab1, tab2, tab3 = st.tabs(["1️⃣ SCREENER", "2️⃣ WATCHLIST & HITUNG", "3️⃣ PETA PORTO"])
 
-# --- TAB 1: SCREENER (SAMA SEPERTI V146) ---
+# --- TAB 1: SCREENER (LOGIC SAMA) ---
 with tab1:
-    st.subheader("Langkah 1: Cari Kandidat Saham")
+    st.subheader("Langkah 1: Cari Kandidat")
     mode = st.radio("Strategi:", ["Radar Krisis (Lihat Semua)", "Reversal (Pantulan)", "Breakout (Ledakan)", "Swing (Santai)"], horizontal=True)
     if 'scan_results' not in st.session_state: st.session_state['scan_results'] = None
 
@@ -142,9 +142,9 @@ with tab1:
                 new = [s for s in selected if s not in wl["Stock"].values]
                 if new: pd.concat([wl, pd.DataFrame([{"Stock": s} for s in new])], ignore_index=True).to_csv(WATCHLIST_FILE, index=False); st.success("Disimpan!"); st.rerun()
 
-# --- TAB 2: WATCHLIST (ANGKA DIPERBAIKI) ---
+# --- TAB 2: WATCHLIST (PEMBAHARUAN PREVIEW ANGKA) ---
 with tab2:
-    st.subheader("Langkah 2: Perencanaan & Eksekusi")
+    st.subheader("Langkah 2: Kalkulator & Eksekusi")
     wl = load_data(WATCHLIST_FILE, ["Stock"])
     
     if wl.empty:
@@ -153,7 +153,7 @@ with tab2:
         for idx, row in wl.iterrows():
             d = get_technical_detail(row['Stock'])
             if d:
-                # Judul Kartu dengan format ribuan (Rp 3.400)
+                # Judul dengan format ribuan
                 with st.expander(f"📊 {d['Stock']} | Rp {d['Price']:,} | {d['Timing']}"):
                     c1, c2, c3 = st.columns(3)
                     c1.write(f"**Tren:** {d['Trend']}")
@@ -161,28 +161,41 @@ with tab2:
                     c3.write(f"[Lihat Chart TV]({d['TV']})")
                     st.divider()
                     
-                    st.write("🧮 **Kalkulator Lot**")
+                    st.write("🧮 **Kalkulator Lot (Money Management)**")
                     col_in1, col_in2, col_in3 = st.columns(3)
                     
-                    # INPUT MODAL (Format Ribuan, misal 10,000,000)
-                    modal = col_in1.number_input("Modal (Rp):", value=10000000, step=100000, format="%d", key=f"mod_{d['Stock']}")
-                    risiko = col_in2.number_input("Risiko (%):", value=2.0, key=f"ris_{d['Stock']}")
-                    sl_price = col_in3.number_input("Titik Cut Loss:", value=d['Support'], step=5, format="%d", key=f"sl_{d['Stock']}")
+                    # 1. INPUT MODAL
+                    modal = col_in1.number_input("Modal Trading (Rp):", value=10000000, step=1000000, key=f"mod_{d['Stock']}")
+                    # LIVE PREVIEW MODAL
+                    col_in1.caption(f"💰 Terbaca: **Rp {int(modal):,}**") 
                     
+                    # 2. INPUT RISIKO
+                    risiko = col_in2.number_input("Risiko Max (%):", value=2.0, key=f"ris_{d['Stock']}")
+                    
+                    # 3. INPUT CUT LOSS
+                    sl_price = col_in3.number_input("Harga Cut Loss:", value=d['Support'], step=10, key=f"sl_{d['Stock']}")
+                    col_in3.caption(f"🔻 Terbaca: **Rp {int(sl_price):,}**")
+
+                    # HITUNG HASIL
                     if sl_price < d['Price']:
                         risiko_rp = modal * (risiko / 100)
                         jarak = d['Price'] - sl_price
                         max_lembar = risiko_rp / jarak
                         max_lot = int(max_lembar / 100)
                         
-                        # Output Hitungan juga pakai ribuan (Rp 200,000)
-                        st.info(f"💡 Risiko Max: **Rp {int(risiko_rp):,}**. Beli Maksimal: **{max_lot} Lot**.")
+                        # TAMPILAN HASIL HITUNG (Format Ribuan Jelas)
+                        st.info(f"""
+                        💡 **HASIL PERHITUNGAN:**
+                        * Risiko Uang: **Rp {int(risiko_rp):,}** (Siap hilang segini)
+                        * Jarak ke CL: **{jarak} poin**
+                        * 👉 **BELI MAKSIMAL: {max_lot} LOT**
+                        """)
                     else:
-                        st.warning("Harga Cut Loss harus di bawah harga sekarang.")
+                        st.warning("⚠️ Harga Cut Loss harus di bawah harga pasar sekarang.")
                     
                     st.divider()
                     col_b1, col_b2 = st.columns([1, 4])
-                    # Tombol Beli yang memproses modal
+                    # Tombol Beli
                     if col_b2.button(f"✅ BELI {d['Stock']} SEKARANG", type="primary", key=f"buy_{d['Stock']}"):
                         pd.concat([load_data(DB_FILE, ["Tgl", "Stock", "Entry"]), pd.DataFrame([{"Tgl": datetime.now().strftime("%Y-%m-%d"), "Stock": d['Stock'], "Entry": d['Price']}])], ignore_index=True).to_csv(DB_FILE, index=False)
                         wl = wl[wl.Stock != d['Stock']]; wl.to_csv(WATCHLIST_FILE, index=False); st.rerun()
@@ -201,8 +214,7 @@ with tab3:
             last, gl, act = get_porto_analysis(row['Stock'], row['Entry'])
             cols = st.columns([2, 2, 2, 1])
             cols[0].write(f"### {row['Stock']}")
-            # Format ribuan untuk harga beli
-            cols[0].caption(f"Beli: Rp {row['Entry']:,}")
+            cols[0].caption(f"Beli: Rp {row['Entry']:,}") # Format ribuan
             
             color = "green" if "Profit" in act else "red" if "CUT" in act else "black"
             cols[1].markdown(f"<h3 style='color:{color}'>{gl}</h3>", unsafe_allow_html=True)
