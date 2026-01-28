@@ -5,113 +5,158 @@ import pandas_ta as ta
 import os
 from datetime import datetime
 
-# --- 1. SETTING ---
-st.set_page_config(page_title="EDU-VEST V138: CRISIS RADAR", layout="wide")
+# --- 1. SETTING DASHBOARD ---
+st.set_page_config(page_title="EDU-VEST V139: STABLE MASTER", layout="wide")
 DB_FILE = "trading_history.csv"
 WATCHLIST_FILE = "my_watchlist.csv"
 
-# Daftar Saham Syariah Bluechip & Second Liner
-SYARIAH_TICKERS = ["ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "MDKA.JK", "INCO.JK", "MEDC.JK", "BRMS.JK", "DEWA.JK", "BUMI.JK", "ADRO.JK", "PTBA.JK", "AMRT.JK", "CPIN.JK"]
+# Daftar Saham Syariah (Bisa ditambah)
+SYARIAH_TICKERS = ["ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "MDKA.JK", "INCO.JK", "MEDC.JK", "BRMS.JK", "DEWA.JK", "BUMI.JK", "ADRO.JK", "PTBA.JK"]
 
 def load_data(file, columns):
     if os.path.exists(file): return pd.read_csv(file)
     return pd.DataFrame(columns=columns)
 
-# --- 2. ENGINE RADAR (TANPA FILTER) ---
-def run_crisis_radar():
-    results = []
-    # Progress Bar agar Bapak tahu sistem bekerja
-    progress_text = "Memindai kerusakan market..."
-    my_bar = st.progress(0, text=progress_text)
-    
-    total = len(SYARIAH_TICKERS)
-    for i, t in enumerate(SYARIAH_TICKERS):
-        try:
-            # Update progress
-            my_bar.progress((i + 1) / total, text=f"Memindai {t}...")
-            
-            stock = yf.Ticker(t)
-            df = stock.history(period="6mo")
-            if len(df) < 50: continue
-            
-            close = df['Close'].iloc[-1]
-            change_pct = ((close - df['Close'].iloc[-2]) / df['Close'].iloc[-2]) * 100
-            
-            # Indikator
-            rsi = ta.rsi(df['Close'], length=14).iloc[-1]
-            ma200 = df['Close'].rolling(200).mean().iloc[-1]
-            bb = ta.bbands(df['Close'], length=20, std=2)
-            lower_band = bb['BBL_20_2.0'].iloc[-1]
-            
-            # Tentukan Status (Hanya Label, Bukan Filter)
-            status = "Normal"
-            if rsi < 20: status = "🔥 EXTREME OVERSOLD"
-            elif rsi < 30: status = "⚠️ Oversold"
-            elif close < lower_band: status = "📉 Tembus Bawah BB"
-            
-            # Rekomendasi Kasar
-            if rsi < 30 and close > lower_band: action = "👀 WATCH (Siap Serok)"
-            elif close < ma200: action = "⛔ DOWNTREND PARAH"
-            else: action = "⚪ WAIT"
+# --- 2. ENGINE ANALISA (Updated V139) ---
+def get_stock_data(ticker):
+    try:
+        t = yf.Ticker(f"{ticker}.JK" if ".JK" not in ticker else ticker)
+        df = t.history(period="6mo")
+        if len(df) < 50: return None
+        return df
+    except: return None
 
-            results.append({
-                "Stock": t.replace(".JK",""),
-                "Price": int(close),
-                "Change": f"{change_pct:.2f}%",
-                "RSI (14)": round(rsi, 1),
-                "Posisi": status,
-                "Saran": action,
-                "Jarak ke MA200": f"{((close - ma200)/ma200)*100:.1f}%"
-            })
-        except: continue
+def analyze_logic(df, mode):
+    close = df['Close'].iloc[-1]
+    prev_close = df['Close'].iloc[-2]
+    ma50 = df['Close'].rolling(50).mean().iloc[-1]
+    rsi = ta.rsi(df['Close'], length=14).iloc[-1]
+    vol_now = df['Volume'].iloc[-1]
+    vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
+    high_20 = df['High'].rolling(20).max().iloc[-2]
+    
+    # 1. RADAR KRISIS (Tampilkan Semua Data Tanpa Filter)
+    if mode == "Radar Krisis (Lihat Semua)":
+        status = "Normal"
+        if rsi < 30: status = "⚠️ Oversold (Murah)"
+        if rsi < 20: status = "🔥 Extreme (Sangat Murah)"
+        return True, status # Selalu True agar muncul semua
         
-    my_bar.empty() # Hapus loading bar
-    return pd.DataFrame(results)
+    # 2. LOGIC REVERSAL
+    elif mode == "Reversal (Pantulan)":
+        if rsi < 40 and close > prev_close: return True, f"RSI {int(rsi)} + Mantul"
+        
+    # 3. LOGIC BREAKOUT
+    elif mode == "Breakout (Ledakan)":
+        if close > high_20 and vol_now > vol_avg: return True, "New High + Big Vol"
+        
+    # 4. LOGIC SWING
+    elif mode == "Swing (Santai)":
+        if close > ma50 and df['Low'].iloc[-1] <= (ma50 * 1.05) and close > prev_close: return True, "Pantul Support MA50"
+
+    return False, "" # Tidak lolos filter
 
 # --- 3. UI DASHBOARD ---
-st.title("☢️ EDU-VEST: CRISIS RADAR V138")
+st.title("🛡️ EDU-VEST: STABLE MASTER V139")
 
 # Panic Meter
 try:
     ihsg = yf.Ticker("^JKSE").history(period="2d")
     chg = ((ihsg['Close'].iloc[-1] - ihsg['Close'].iloc[-2]) / ihsg['Close'].iloc[-2]) * 100
-    if chg <= -3.0: st.error(f"🚨 MARKET CRASH ({chg:.2f}%) - MODE RADAR DIAKTIFKAN.")
-    else: st.info(f"Market Status: {chg:.2f}%")
+    if chg <= -3.0: st.error(f"🚨 MARKET CRASH ({chg:.2f}%)")
+    else: st.success(f"🟢 MARKET STATUS: {chg:.2f}%")
 except: pass
 
-st.write("### 📉 Peta Kerusakan Saham (Diurutkan dari RSI Terendah)")
-st.write("Fitur ini menampilkan **SEMUA SAHAM** tanpa filter 'Buy Signal', agar Bapak bisa melihat mana yang sudah terlalu murah.")
+# --- 4. NAVIGASI TAB (KEMBALI KE STRUKTUR LAMA YANG BAPAK SUKA) ---
+tab1, tab2, tab3, tab4 = st.tabs(["🔍 SCREENER & RADAR", "⭐ WATCHLIST", "📊 PORTO MONITOR", "➕ INPUT MANUAL"])
 
-if st.button("JALANKAN RADAR KRISIS"):
-    df_res = run_crisis_radar()
-    if not df_res.empty:
-        # Urutkan berdasarkan RSI terendah (Paling hancur di atas)
-        df_res = df_res.sort_values(by="RSI (14)", ascending=True)
+with tab1:
+    st.subheader("Cari Saham Potensial")
+    # Pilihan Mode dikembalikan lengkap
+    mode = st.radio("Pilih Strategi:", ["Radar Krisis (Lihat Semua)", "Reversal (Pantulan)", "Breakout (Ledakan)", "Swing (Santai)"], horizontal=True)
+    
+    if st.button("JALANKAN PROSES"):
+        st.write(f"⏳ Sedang memproses data dengan mode: **{mode}**...")
+        results = []
+        progress_bar = st.progress(0)
         
-        # Tampilkan Data Editor dengan Highlight Warna
-        st.data_editor(
-            df_res,
-            column_config={
-                "RSI (14)": st.column_config.NumberColumn(
-                    "RSI Score",
-                    help="Di bawah 30 = Murah, Di bawah 20 = Sangat Murah",
-                    format="%.1f",
-                ),
-                "Change": st.column_config.TextColumn("Harian %"),
-            },
-            hide_index=True,
-            use_container_width=True
-        )
-        st.info("💡 **Tips:** Perhatikan saham dengan RSI < 20. Jika besok muncul candle hijau, itu adalah peluang pantulan terbaik.")
-    else:
-        st.error("Gagal mengambil data market. Cek koneksi internet.")
+        for i, t in enumerate(SYARIAH_TICKERS):
+            progress_bar.progress((i + 1) / len(SYARIAH_TICKERS))
+            df = get_stock_data(t)
+            
+            if df is not None:
+                lolos, catatan = analyze_logic(df, mode)
+                if lolos:
+                    close = df['Close'].iloc[-1]
+                    rsi = ta.rsi(df['Close'], length=14).iloc[-1]
+                    results.append({
+                        "Stock": t.replace(".JK",""), 
+                        "Price": int(close), 
+                        "RSI": round(rsi, 1),
+                        "Catatan/Status": catatan,
+                        "Chart": f"https://www.tradingview.com/chart/?symbol=IDX:{t.replace('.JK','')}"
+                    })
+        
+        progress_bar.empty() # Hilangkan loading bar setelah selesai
+        
+        if results:
+            # Urutkan berdasarkan RSI terendah jika mode Radar Krisis
+            df_res = pd.DataFrame(results)
+            if mode == "Radar Krisis (Lihat Semua)":
+                df_res = df_res.sort_values(by="RSI", ascending=True)
+                
+            st.success(f"✅ Selesai! Ditemukan {len(df_res)} data.")
+            st.data_editor(df_res, column_config={"Chart": st.column_config.LinkColumn("Buka TV")}, hide_index=True)
+        else:
+            st.warning("Tidak ada saham yang memenuhi kriteria strategi ini (Wajar jika market crash). Coba mode 'Radar Krisis' untuk melihat semua data.")
 
-# Tab Watchlist & Porto tetap ada di bawah
-with st.expander("📂 Buka Watchlist & Portfolio"):
-    tab1, tab2 = st.tabs(["⭐ Watchlist", "📊 Portfolio"])
-    with tab1:
-         wl = load_data(WATCHLIST_FILE, ["Stock"])
-         st.dataframe(wl) if not wl.empty else st.write("Kosong")
-    with tab2:
-         pf = load_data(DB_FILE, ["Tgl", "Stock", "Entry"])
-         st.dataframe(pf) if not pf.empty else st.write("Kosong")
+with tab2:
+    st.subheader("📊 Analisa Watchlist")
+    if st.button("🗑️ Hapus Watchlist", type="secondary"):
+        if os.path.exists(WATCHLIST_FILE): os.remove(WATCHLIST_FILE); st.rerun()
+    
+    wl = load_data(WATCHLIST_FILE, ["Stock"])
+    if not wl.empty:
+        wl_data = []
+        for s in wl['Stock']:
+            df = get_stock_data(s)
+            if df is not None:
+                ma200 = df['Close'].rolling(200).mean().iloc[-1]
+                p = df['Close'].iloc[-1]
+                stat = "🟢 BAGUS" if p > df['Close'].rolling(50).mean().iloc[-1] else "🔴 JAUHI"
+                if p < ma200: stat = "🔴 TREND RUSAK"
+                wl_data.append({"Stock": s, "Price": int(p), "Status": stat})
+        st.table(pd.DataFrame(wl_data))
+    else: st.info("Watchlist Kosong.")
+
+with tab3:
+    st.subheader("📊 Portfolio Monitor")
+    if st.button("🚨 Reset Porto", type="primary"):
+        if os.path.exists(DB_FILE): os.remove(DB_FILE); st.rerun()
+            
+    df_p = load_data(DB_FILE, ["Tgl", "Stock", "Entry"])
+    if not df_p.empty:
+        for idx, row in df_p.iterrows():
+            df = get_stock_data(row['Stock'])
+            if df is not None:
+                curr = df['Close'].iloc[-1]
+                gl = ((curr - row['Entry']) / row['Entry']) * 100
+                act = "🟡 HOLD"
+                if gl <= -7: act = "🚨 CUT LOSS"
+                elif gl >= 15: act = "🔵 TAKE PROFIT"
+                
+                c1, c2, c3, c4 = st.columns([1, 1, 2, 1])
+                c1.write(f"**{row['Stock']}**")
+                c2.write(f"G/L: {gl:+.2f}%")
+                c3.write(f"Saran: {act}")
+                if c4.button("🗑️", key=f"d{idx}"): df_p.drop(idx).to_csv(DB_FILE, index=False); st.rerun()
+                st.divider()
+
+with tab4:
+    st.subheader("➕ Input Manual")
+    with st.form("add_manual"):
+        c1, c2 = st.columns(2)
+        s = c1.text_input("Kode:").upper()
+        p = c2.number_input("Harga Beli:", step=1)
+        if st.form_submit_button("Simpan"):
+            pd.concat([load_data(DB_FILE, ["Tgl", "Stock", "Entry"]), pd.DataFrame([{"Tgl": datetime.now(), "Stock": s, "Entry": p}])], ignore_index=True).to_csv(DB_FILE, index=False); st.rerun()
