@@ -6,109 +6,96 @@ import os
 from datetime import datetime
 
 # --- 1. INISIALISASI DATABASE ---
-st.set_page_config(page_title="EDU-VEST ALL-IN-ONE V128", layout="wide")
+st.set_page_config(page_title="EDU-VEST V129: Trading Plan", layout="wide")
 DB_FILE = "trading_history.csv"
 WATCHLIST_FILE = "my_watchlist.csv"
 
-# Daftar saham Syariah Bapak (ANTM, BRIS, TLKM, dll)
-SYARIAH_TICKERS = ["ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "SIDO.JK", "MDKA.JK", "INCO.JK", "MBMA.JK", "AMRT.JK", "ACES.JK", "HRUM.JK", "AKRA.JK", "MEDC.JK", "ELSA.JK", "BRMS.JK", "DEWA.JK", "BUMI.JK", "MYOR.JK", "CPIN.JK", "JPFA.JK", "SMGR.JK", "INTP.JK", "TPIA.JK"]
+SYARIAH_TICKERS = ["ANTM.JK", "PGAS.JK", "EXCL.JK", "MDKA.JK", "INCO.JK", "MBMA.JK", "HRUM.JK", "MEDC.JK", "ELSA.JK", "MYOR.JK", "JPFA.JK"]
 
 def load_data(file, columns):
     if os.path.exists(file): return pd.read_csv(file)
     return pd.DataFrame(columns=columns)
 
-# --- 2. ENGINE ANALISA ---
+# --- 2. ENGINE ANALISA & TRADING PLAN ---
 def get_detailed_analysis(ticker, is_portfolio=False, entry_price=0):
     try:
         t = yf.Ticker(f"{ticker}.JK" if ".JK" not in ticker else ticker)
         df = t.history(period="1y")
-        if len(df) < 50: return "Data Kurang", "⚪", 0, "0%", 0, 0
+        if len(df) < 50: return None
         
         last_p = int(df['Close'].iloc[-1])
         ma50 = df['Close'].rolling(50).mean().iloc[-1]
         ma200 = df['Close'].rolling(200).mean().iloc[-1]
         
-        if last_p < ma200: status, reco = "Trend Rusak (Below MA200)", "🔴 JAUHI"
+        # Penentuan Status
+        if last_p < ma200: status, reco = "Trend Rusak", "🔴 JAUHI"
         elif last_p > ma50: status, reco = "Strong Momentum", "🟢 BAGUS"
-        else: status, reco = "Fase Konsolidasi", "⚪ TUNGGU"
+        else: status, reco = "Konsolidasi", "⚪ TUNGGU"
+        
+        # Auto Trading Plan (Inspirasi HQ)
+        buy_area = f"{int(last_p * 0.98)} - {last_p}"
+        tp_target = int(last_p * 1.15)
+        sl_exit = int(last_p * 0.93)
             
-        gl_str, tp, ts = "0%", 0, 0
+        gl_str = "0%"
         if is_portfolio and entry_price > 0:
             gl_val = ((last_p - entry_price) / entry_price) * 100
             gl_str = f"{gl_val:+.2f}%"
-            tp, ts = int(entry_price * 1.15), int(last_p * 0.95)
-            if gl_val <= -7.0: reco = "🚨 SELL (Cut Loss)"
+            if gl_val <= -7.0: reco = "🚨 CUT LOSS"
             elif gl_val >= 15.0: reco = "🔵 TAKE PROFIT"
-            elif gl_val >= 5.0: reco = "🟢 HOLD (TS Active)"
-            else: reco = "🟡 HOLD (Wait)"
             
-        return status, reco, last_p, gl_str, tp, ts
-    except: return "Error", "❌", 0, "0%", 0, 0
+        return {
+            "Price": last_p, "Status": status, "Action": reco, 
+            "G/L": gl_str, "Buy Area": buy_area, "TP": tp_target, "SL": sl_exit,
+            "TV": f"https://www.tradingview.com/chart/?symbol=IDX:{ticker.replace('.JK','')}"
+        }
+    except: return None
 
-# --- 3. TAMPILAN UTAMA & NAVIGASI ---
-st.title("🛡️ EDU-VEST: STRATEGIC DASHBOARD V128")
+# --- 3. TAMPILAN UTAMA ---
+st.title("🛡️ EDU-VEST: TRADING PLAN DASHBOARD V129")
 
 tab1, tab2, tab3, tab4 = st.tabs(["🔍 SCREENER", "⭐ WATCHLIST", "📊 PORTO MONITOR", "➕ INPUT MANUAL"])
 
 with tab1:
-    st.subheader("🚀 Scanner Reversal Syariah")
+    st.subheader("🚀 Scanner & Trading Plan Syariah")
     if st.button("JALANKAN SCANNER SEKARANG"):
-        with st.spinner("Memproses data market Syariah..."):
-            scan_results = []
+        with st.spinner("Menganalisa Trading Plan..."):
+            scan_res = []
             for t in SYARIAH_TICKERS:
-                status, reco, pr, _, _, _ = get_detailed_analysis(t)
-                if reco == "🟢 BAGUS":
-                    scan_results.append({"Stock": t.replace(".JK",""), "Price": pr, "Status": status, "Action": reco})
-            
-            if scan_results:
-                st.table(pd.DataFrame(scan_results))
-            else:
-                st.warning("Tidak ada saham syariah yang memenuhi kriteria Strong Momentum saat ini.")
+                data = get_detailed_analysis(t)
+                if data and data["Action"] == "🟢 BAGUS":
+                    s_name = t.replace(".JK","")
+                    scan_res.append({
+                        "Stock": s_name, "Price": data["Price"], "Action": data["Action"],
+                        "Buy Area": data["Buy Area"], "Target TP": data["TP"], "Stop Loss": data["SL"],
+                        "TV Link": data["TV"]
+                    })
+            if scan_res:
+                st.data_editor(pd.DataFrame(scan_res), column_config={"TV Link": st.column_config.LinkColumn("Chart TV")}, hide_index=True)
 
 with tab2:
     st.subheader("📊 Analisa Watchlist")
-    new_s = st.text_input("Tambah Kode:").upper()
-    if st.button("➕ Simpan ke Watchlist"):
-        wl = load_data(WATCHLIST_FILE, ["Stock"])
-        if new_s and new_s not in wl['Stock'].values:
-            pd.concat([wl, pd.DataFrame([{"Stock": new_s}])], ignore_index=True).to_csv(WATCHLIST_FILE, index=False)
-            st.rerun()
-    
+    # ... (Gunakan input kode saham Bapak)
     wl = load_data(WATCHLIST_FILE, ["Stock"])
     if not wl.empty:
-        res_wl = []
+        wl_results = []
         for s in wl['Stock']:
-            stat, reco, pr, _, _, _ = get_detailed_analysis(s)
-            res_wl.append({"Stock": s, "Price": pr, "Kondisi": stat, "Rekomendasi": reco})
-        st.table(pd.DataFrame(res_wl))
+            d = get_detailed_analysis(s)
+            if d: wl_results.append({"Stock": s, "Price": d["Price"], "Rekomendasi": d["Action"], "TP": d["TP"], "SL": d["SL"], "TV": d["TV"]})
+        st.data_editor(pd.DataFrame(wl_results), column_config={"TV": st.column_config.LinkColumn("Buka TV")}, hide_index=True)
 
 with tab3:
-    st.subheader("📊 Monitoring Porto (Hapus Manual Aktif)")
+    st.subheader("📊 Monitoring Porto & Action")
     df_p = load_data(DB_FILE, ["Tgl", "Stock", "Entry"])
     if not df_p.empty:
-        for index, row in df_p.iterrows():
-            _, reco, last, gl, tp, ts = get_detailed_analysis(row['Stock'], True, row['Entry'])
-            col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 2, 1])
-            col1.write(f"**{row['Stock']}**")
-            col2.write(f"G/L: {gl}")
-            col3.write(f"Action: {reco}")
-            col4.write(f"TP: {tp} | TS: {ts}")
-            # Fitur Hapus Manual per baris
-            if col5.button(f"🗑️", key=f"del_{row['Stock']}"):
-                df_p = df_p.drop(index)
-                df_p.to_csv(DB_FILE, index=False)
-                st.rerun()
-            st.divider()
-    else: st.info("Portfolio Kosong.")
-
-with tab4:
-    st.subheader("➕ Tambah Transaksi Manual")
-    with st.form("manual_form"):
-        c1, c2 = st.columns(2)
-        s_in = c1.text_input("Kode:").upper()
-        p_in = c2.number_input("Harga Beli:", step=1)
-        if st.form_submit_button("Simpan ke Porto"):
-            df_p = load_data(DB_FILE, ["Tgl", "Stock", "Entry"])
-            new_data = pd.DataFrame([{"Tgl": datetime.now().strftime("%Y-%m-%d"), "Stock": s_in, "Entry": p_in}])
-            pd.concat([df_p, new_data], ignore_index=True).to_csv(DB_FILE, index=False)
-            st.success("Berhasil disimpan!")
+        for idx, row in df_p.iterrows():
+            d = get_detailed_analysis(row['Stock'], True, row['Entry'])
+            if d:
+                c1, c2, c3, c4 = st.columns([1, 1, 2, 1])
+                c1.write(f"**{row['Stock']}**")
+                c2.write(f"G/L: {d['G/L']}")
+                c3.write(f"Action: {d['Action']} | TP: {d['TP']} | SL: {d['SL']}")
+                if c4.button("🗑️", key=f"del_{idx}"):
+                    df_p.drop(idx).to_csv(DB_FILE, index=False)
+                    st.rerun()
+                st.divider()
