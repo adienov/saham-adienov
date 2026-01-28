@@ -204,29 +204,25 @@ with tab2:
                     if col_b1.button("Hapus", key=f"del_{d['Stock']}"):
                         wl = wl[wl.Stock != d['Stock']]; wl.to_csv(WATCHLIST_FILE, index=False); st.rerun()
                         
-                    # --- TOMBOL BELI DENGAN PESAN KHUSUS ---
+                    # --- TOMBOL BELI DENGAN PESAN KHUSUS (TANPA BALON) ---
                     if col_b2.button(f"🛒 SIMULASI BELI {d['Stock']}", type="primary", key=f"buy_{d['Stock']}"):
-                        # 1. Catat ke Database (Untuk Admin/Bapak)
+                        # 1. Catat ke Database
                         pd.concat([load_data(DB_FILE, ["Tgl", "Stock", "Entry"]), pd.DataFrame([{"Tgl": datetime.now().strftime("%Y-%m-%d"), "Stock": d['Stock'], "Entry": d['Price']}])], ignore_index=True).to_csv(DB_FILE, index=False)
                         
                         # 2. Hapus dari Watchlist
                         wl = wl[wl.Stock != d['Stock']]
                         wl.to_csv(WATCHLIST_FILE, index=False)
                         
-                        # 3. TAMPILKAN INFO EDUKATIF
-                        st.balloons()
-                        st.success(f"✅ **BERHASIL DICATAT!** Saham {d['Stock']} di harga {d['Price']:,} telah masuk ke Tab Portfolio (Terkunci).")
-                        
-                        # 4. PESAN UNTUK ORANG UMUM / GURU
+                        # 3. PESAN EDUKATIF & DISCLAIMER (PROFESIONAL)
+                        st.success(f"✅ **DATA TERSIMPAN.** {d['Stock']} berhasil dicatat ke Portfolio Admin.")
                         st.warning(f"""
-                        🔔 **PENTING UNTUK USER:**
-                        Ini hanya simulasi pencatatan di aplikasi ini.
+                        🔔 **PENGINGAT EKSEKUSI:**
+                        Aplikasi ini hanya alat bantu analisa & pencatatan.
                         
-                        👉 **SILAKAN EKSEKUSI PEMBELIAN ASLI DI SEKURITAS ANDA.**
-                        Buka aplikasi (IPOT / Stockbit / Ajaib / dll) dan input Order Buy untuk **{d['Stock']}** sekarang.
+                        👉 **LANGKAH SELANJUTNYA:**
+                        Silakan buka aplikasi Sekuritas Anda (IPOT/Stockbit/Ajaib) dan lakukan Order Buy untuk **{d['Stock']}** secara real.
                         """)
                         
-                        # Stop script sementara agar user membaca pesan
                         st.stop() 
 
 # --- TAB 3: PORTFOLIO (PIN PROTECTED) ---
