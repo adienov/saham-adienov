@@ -3,10 +3,10 @@ import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
 import os
-import time  # <--- TAMBAHAN PENTING (Untuk Jeda)
+import time
 from datetime import datetime
 
-# --- 1. SETTING IDENTITAS ---
+# --- 1. SETTING IDENTITAS & CHART ---
 st.set_page_config(
     page_title="ADIENOV TRADING PRO",
     page_icon="🦅",
@@ -16,6 +16,10 @@ st.set_page_config(
 
 # PIN SECURITY
 SECRET_PIN = "2026" 
+
+# ID CHART TRADINGVIEW BAPAK (Dari Screenshot)
+# Ini kuncinya agar indikator Noris/Minervini otomatis muncul
+TV_CHART_ID = "q94KuJTY" 
 
 DB_FILE = "trading_history.csv"
 WATCHLIST_FILE = "my_watchlist.csv"
@@ -86,8 +90,12 @@ def get_technical_detail(ticker):
         support = int(df['Low'].tail(20).min())
         resistance = int(df['High'].tail(20).max())
 
+        # URL TRADINGVIEW KHUSUS (DENGAN ID CHART)
+        tv_url = f"https://www.tradingview.com/chart/{TV_CHART_ID}/?symbol=IDX:{ticker.replace('.JK','')}"
+
         return {
-            "Stock": ticker.replace(".JK",""), "Price": close, "Trend": trend, "RSI": int(rsi), "Timing": timing, "Support": support, "Resistance": resistance, "TV": f"https://www.tradingview.com/chart/?symbol=IDX:{ticker.replace('.JK','')}"
+            "Stock": ticker.replace(".JK",""), "Price": close, "Trend": trend, "RSI": int(rsi), 
+            "Timing": timing, "Support": support, "Resistance": resistance, "TV": tv_url
         }
     except: return None
 
@@ -138,7 +146,10 @@ with tab1:
                 if lolos:
                     close = df['Close'].iloc[-1]
                     rsi = ta.rsi(df['Close'], length=14).iloc[-1]
-                    results.append({"Pilih": False, "Stock": t.replace(".JK",""), "Price": int(close), "Kualitas": f_stat, "ROE (%)": round(roe, 1), "Chart": f"https://www.tradingview.com/chart/?symbol=IDX:{t.replace('.JK','')}"})
+                    # URL TV dengan ID Chart
+                    tv_link = f"https://www.tradingview.com/chart/{TV_CHART_ID}/?symbol=IDX:{t.replace('.JK','')}"
+                    
+                    results.append({"Pilih": False, "Stock": t.replace(".JK",""), "Price": int(close), "Kualitas": f_stat, "ROE (%)": round(roe, 1), "Chart": tv_link})
         progress_bar.empty()
         
         if results:
@@ -150,7 +161,6 @@ with tab1:
     if st.session_state['scan_results'] is not None:
         edited_df = st.data_editor(st.session_state['scan_results'], column_config={"Pilih": st.column_config.CheckboxColumn("Pantau"), "Chart": st.column_config.LinkColumn("Grafik"), "Kualitas": st.column_config.TextColumn("Fundamental"), "ROE (%)": st.column_config.NumberColumn("ROE", format="%.1f%%")}, hide_index=True, use_container_width=True)
         
-        # --- PERBAIKAN DI SINI (NOTIFIKASI) ---
         if st.button("💾 MASUKKAN KE WATCHLIST"):
             selected = edited_df[edited_df["Pilih"] == True]["Stock"].tolist()
             if selected:
@@ -158,17 +168,11 @@ with tab1:
                 new = [s for s in selected if s not in wl["Stock"].values]
                 if new: 
                     pd.concat([wl, pd.DataFrame([{"Stock": s} for s in new])], ignore_index=True).to_csv(WATCHLIST_FILE, index=False)
-                    
-                    # Tampilkan pesan sukses
                     st.success(f"✅ Berhasil! {len(new)} saham ({', '.join(new)}) telah ditambahkan ke Watchlist.")
-                    
-                    # Jeda waktu agar pesan terbaca sebelum refresh
                     time.sleep(1.5) 
                     st.rerun()
-                else: 
-                    st.warning("⚠️ Semua saham yang dipilih SUDAH ADA di Watchlist Anda sebelumnya.")
-            else: 
-                st.warning("⚠️ Belum ada saham yang dicentang. Silakan centang kotak 'Pantau' di tabel.")
+                else: st.warning("⚠️ Semua saham yang dipilih SUDAH ADA di Watchlist Anda sebelumnya.")
+            else: st.warning("⚠️ Belum ada saham yang dicentang.")
 
 # --- TAB 2: WATCHLIST ---
 with tab2:
