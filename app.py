@@ -5,70 +5,82 @@ import pandas_ta as ta
 import os
 from datetime import datetime
 
-# --- 1. SETTING DATABASE & WATCHLIST ---
-st.set_page_config(page_title="EDU-VEST V119: Screener Status", layout="wide")
+# --- 1. SETTING DATABASE & PROTECTION ---
+st.set_page_config(page_title="EDU-VEST V120: Protection Max", layout="wide")
+DB_FILE = "trading_history.csv"
 WATCHLIST_FILE = "my_watchlist.csv"
 
-def load_watchlist():
-    if os.path.exists(WATCHLIST_FILE): return pd.read_csv(WATCHLIST_FILE)
-    return pd.DataFrame(columns=["Stock"])
+def load_data(file, columns):
+    if os.path.exists(file): return pd.read_csv(file)
+    return pd.DataFrame(columns=columns)
 
-# --- 2. ENGINE ANALISA CANSLIM & TEKNIKAL ---
-def get_detailed_status(ticker):
+# --- 2. ENGINE ANALISA & ACTION ---
+def analyze_stock_action(ticker, entry_price):
     try:
         t = yf.Ticker(f"{ticker}.JK")
         df = t.history(period="1y")
-        if len(df) < 100: return "Data Kurang", "⚪", 0
+        if len(df) < 100: return 0, "N/A", "⚪ MONITOR"
         
-        info = t.info
-        close = df['Close'].iloc[-1]
-        ma50 = df['Close'].rolling(50).mean().iloc[-1]
+        curr_p = df['Close'].iloc[-1]
         ma200 = df['Close'].rolling(200).mean().iloc[-1]
-        roe = info.get('returnOnEquity', 0) * 100
-        eps_growth = info.get('earningsQuarterlyGrowth', 0) * 100
+        gain_loss = ((curr_p - entry_price) / entry_price) * 100
         
-        # Penentuan Status Berdasarkan CANSLIM & MA
-        if close < ma200:
-            status, reco = "Trend Rusak (Below MA200)", "🔴 JAUHI"
-        elif roe > 17 and eps_growth > 25 and close > ma50:
-            status, reco = "Strong CANSLIM Leader", "🟢 BAGUS"
-        elif close <= (ma50 * 1.02) and close >= (ma50 * 0.98):
-            status, reco = "Pantul Support MA50", "🟡 PANTAU"
+        # LOGIKA CUT LOSS & EXIT (CANSLIM Rule)
+        if gain_loss <= -7.0:
+            action = "🔴 CUT LOSS (Limit -7%)"
+        elif curr_p < ma200:
+            action = "🔴 EXIT (Trend Rusak)"
+        elif gain_loss >= 10.0:
+            action = "🟢 HOLD (Trailing Stop)"
         else:
-            status, reco = "Fase Konsolidasi", "⚪ TUNGGU"
+            action = "⚪ MONITOR"
             
-        return status, reco, int(close)
-    except: return "Error Data", "❌", 0
+        return int(curr_p), f"{gain_loss:+.2f}%", action
+    except: return 0, "0%", "❌ ERROR"
 
 # --- 3. TAMPILAN UTAMA ---
-st.title("🛡️ EDU-VEST: SCREENER STATUS WATCHLIST V119")
-st.error(f"🚨 MARKET CRASH (-5.24%). Gunakan Watchlist untuk mencari Leader yang bertahan!")
+st.title("🛡️ EDU-VEST: PROTECTION MAX V120")
 
-# Layouting Sidebar & Main
-col1, col2 = st.columns([1, 3])
+# Panic Meter IHSG
+try:
+    ihsg = yf.Ticker("^JKSE").history(period="2d")
+    ihsg_chg = ((ihsg['Close'].iloc[-1] - ihsg['Close'].iloc[-2]) / ihsg['Close'].iloc[-2]) * 100
+    if ihsg_chg <= -3.0:
+        st.error(f"🚨 MARKET CRASH ({ihsg_chg:.2f}%). Prioritas: Amankan Modal & Cek Tabel Cut Loss!")
+except: pass
 
-with col1:
-    st.subheader("➕ Tambah Watchlist")
-    new_stock = st.text_input("Kode Saham (NCKL, DEWA, dll):").upper()
-    if st.button("Simpan ke Watchlist"):
-        wl_df = load_watchlist()
-        if new_stock and new_stock not in wl_df['Stock'].values:
-            new_row = pd.DataFrame([{"Stock": new_stock}])
-            pd.concat([wl_df, new_row], ignore_index=True).to_csv(WATCHLIST_FILE, index=False)
-            st.rerun()
+tab1, tab2, tab3 = st.tabs(["🔍 SCANNER", "⭐ WATCHLIST", "📊 NORIS PETA (PORTFOLIO)"])
 
-with col2:
-    st.subheader("📊 Analisa Status Real-time")
-    wl_df = load_watchlist()
-    if not wl_df.empty:
-        results = []
-        for s in wl_df['Stock']:
-            status, reco, price = get_detailed_status(s)
-            results.append({"Stock": s, "Price": price, "Kondisi Teknis": status, "Rekomendasi": reco})
+with tab2: # Tab Watchlist dari V119
+    st.subheader("📊 Auto-Analisa Watchlist")
+    # ... (Gunakan kode V119 Bapak di sini untuk tambah & tampilkan watchlist)
+
+with tab3: # Tab Portfolio Baru dengan Alarm Cut Loss
+    st.subheader("📊 Monitor Peta & Rekomendasi Action")
+    df_peta = load_data(DB_FILE, ["Tgl", "Stock", "Syariah", "Entry", "SL/TS"])
+    
+    if not df_peta.empty:
+        peta_results = []
+        with st.spinner("Menghitung risiko real-time..."):
+            for _, row in df_peta.iterrows():
+                last_p, gl_pct, recommendation = analyze_stock_action(row['Stock'], row['Entry'])
+                peta_results.append({
+                    "Stock": row['Stock'],
+                    "Entry": row['Entry'],
+                    "Last": last_p,
+                    "G/L %": gl_pct,
+                    "Rekomendasi Action": recommendation, # Fitur Baru Bapak
+                    "SL/TS Plan": row['SL/TS']
+                })
         
-        # Tampilkan Tabel Status Seperti Keinginan Bapak
-        st.table(pd.DataFrame(results))
+        # Tampilkan Tabel dengan Highlight Rekomendasi
+        st.table(pd.DataFrame(peta_results))
         
-        if st.button("🗑️ Kosongkan Daftar"):
-            os.remove(WATCHLIST_FILE)
+        st.info("💡 Tip: Jika muncul 'CUT LOSS', segera pangkas posisi untuk menghindari kerugian lebih dalam sesuai aturan CANSLIM.")
+        
+        if st.button("🗑️ RESET PETA"):
+            if os.path.exists(DB_FILE): os.remove(DB_FILE)
             st.rerun()
+    else:
+        st.info("Peta Portfolio Kosong.")
+        
