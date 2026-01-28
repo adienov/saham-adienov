@@ -96,4 +96,3 @@ with tab3:
     else:
         # Tampilan jika database masih kosong agar tidak terlihat "blank"
         st.info("Peta Portfolio Kosong. Masukkan saham pilihan Bapak di tab WATCHLIST terlebih dahulu.")
-        
