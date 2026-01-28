@@ -5,72 +5,70 @@ import pandas_ta as ta
 import os
 from datetime import datetime
 
-# --- 1. SETTING DATABASE ---
-st.set_page_config(page_title="EDU-VEST V118: Auto-Analisa", layout="wide")
+# --- 1. SETTING DATABASE & WATCHLIST ---
+st.set_page_config(page_title="EDU-VEST V119: Screener Status", layout="wide")
 WATCHLIST_FILE = "my_watchlist.csv"
 
 def load_watchlist():
     if os.path.exists(WATCHLIST_FILE): return pd.read_csv(WATCHLIST_FILE)
     return pd.DataFrame(columns=["Stock"])
 
-# --- 2. FUNGSI ANALISA OTOMATIS WATCHLIST ---
-def get_auto_analysis(ticker):
+# --- 2. ENGINE ANALISA CANSLIM & TEKNIKAL ---
+def get_detailed_status(ticker):
     try:
         t = yf.Ticker(f"{ticker}.JK")
         df = t.history(period="1y")
-        if len(df) < 50: return "Data Kurang", "⚪"
+        if len(df) < 100: return "Data Kurang", "⚪", 0
         
+        info = t.info
         close = df['Close'].iloc[-1]
         ma50 = df['Close'].rolling(50).mean().iloc[-1]
         ma200 = df['Close'].rolling(200).mean().iloc[-1]
-        rsi = ta.rsi(df['Close'], length=14).iloc[-1]
+        roe = info.get('returnOnEquity', 0) * 100
+        eps_growth = info.get('earningsQuarterlyGrowth', 0) * 100
         
-        # Logika Analisa Cepat [cite: 21, 28]
+        # Penentuan Status Berdasarkan CANSLIM & MA
         if close < ma200:
-            return "Trend Rusak (Below MA200)", "🔴 JAUHI"
-        elif close < ma50 and rsi < 35:
-            return "Oversold di Support MA50", "🟡 PANTAU"
-        elif close > ma50 and rsi > 50:
-            return "Strong Momentum", "🟢 BAGUS"
+            status, reco = "Trend Rusak (Below MA200)", "🔴 JAUHI"
+        elif roe > 17 and eps_growth > 25 and close > ma50:
+            status, reco = "Strong CANSLIM Leader", "🟢 BAGUS"
+        elif close <= (ma50 * 1.02) and close >= (ma50 * 0.98):
+            status, reco = "Pantul Support MA50", "🟡 PANTAU"
         else:
-            return "Fase Konsolidasi", "⚪ TUNGGU"
-    except: return "Error Data", "❌"
+            status, reco = "Fase Konsolidasi", "⚪ TUNGGU"
+            
+        return status, reco, int(close)
+    except: return "Error Data", "❌", 0
 
 # --- 3. TAMPILAN UTAMA ---
-st.title("🛡️ EDU-VEST: AUTO-ANALISA WATCHLIST V118")
+st.title("🛡️ EDU-VEST: SCREENER STATUS WATCHLIST V119")
+st.error(f"🚨 MARKET CRASH (-5.24%). Gunakan Watchlist untuk mencari Leader yang bertahan!")
 
-# FTD Monitor [cite: 29]
-ihsg_chg = -5.24 # Berdasarkan data market Bapak
-st.error(f"🚨 MARKET CRASH ({ihsg_chg}%). Fokus pada Analisa Watchlist, Jangan Entry Dulu! ")
+# Layouting Sidebar & Main
+col1, col2 = st.columns([1, 3])
 
-tab1, tab2 = st.tabs(["⭐ ANALISA WATCHLIST", "🔍 SCANNER REBOUND"])
-
-with tab1:
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        new_stock = st.text_input("Masukkan Kode (Contoh: NCKL, DEWA):").upper()
-        if st.button("➕ Tambah ke Watchlist"):
-            wl_df = load_watchlist()
-            if new_stock and new_stock not in wl_df['Stock'].values:
-                new_row = pd.DataFrame([{"Stock": new_stock}])
-                pd.concat([wl_df, new_row], ignore_index=True).to_csv(WATCHLIST_FILE, index=False)
-                st.rerun()
-
-    with col2:
-        st.write("### 📊 Analisa Otomatis Saham Anda")
+with col1:
+    st.subheader("➕ Tambah Watchlist")
+    new_stock = st.text_input("Kode Saham (NCKL, DEWA, dll):").upper()
+    if st.button("Simpan ke Watchlist"):
         wl_df = load_watchlist()
-        if not wl_df.empty:
-            analysis_data = []
-            for s in wl_df['Stock']:
-                status, rekomendasi = get_auto_analysis(s)
-                # Ambil harga real-time untuk watchlist
-                t = yf.Ticker(f"{s}.JK")
-                curr_price = t.history(period="1d")['Close'].iloc[-1]
-                analysis_data.append({
-                    "Stock": s, "Price": int(curr_price),
-                    "Kondisi Teknis": status, "Rekomendasi": rekomendasi
-                })
-            st.table(pd.DataFrame(analysis_data))
-            if st.button("🗑️ Kosongkan Watchlist"):
-                os.remove(WATCHLIST_FILE)
-                st.rerun()
+        if new_stock and new_stock not in wl_df['Stock'].values:
+            new_row = pd.DataFrame([{"Stock": new_stock}])
+            pd.concat([wl_df, new_row], ignore_index=True).to_csv(WATCHLIST_FILE, index=False)
+            st.rerun()
+
+with col2:
+    st.subheader("📊 Analisa Status Real-time")
+    wl_df = load_watchlist()
+    if not wl_df.empty:
+        results = []
+        for s in wl_df['Stock']:
+            status, reco, price = get_detailed_status(s)
+            results.append({"Stock": s, "Price": price, "Kondisi Teknis": status, "Rekomendasi": reco})
+        
+        # Tampilkan Tabel Status Seperti Keinginan Bapak
+        st.table(pd.DataFrame(results))
+        
+        if st.button("🗑️ Kosongkan Daftar"):
+            os.remove(WATCHLIST_FILE)
+            st.rerun()
