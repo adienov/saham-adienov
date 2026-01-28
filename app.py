@@ -7,7 +7,7 @@ from datetime import datetime
 
 # --- 1. SETTING TAMPILAN PROFESIONAL ---
 st.set_page_config(
-    page_title="EDU-VEST PRO",
+    page_title="ADIEN NOVARISA TRADING PRO",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="collapsed"
