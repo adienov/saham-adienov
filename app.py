@@ -3,6 +3,7 @@ import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
 import os
+import time  # <--- TAMBAHAN PENTING (Untuk Jeda)
 from datetime import datetime
 
 # --- 1. SETTING IDENTITAS ---
@@ -13,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# PIN SECURITY (Ganti sesuai keinginan Bapak)
+# PIN SECURITY
 SECRET_PIN = "2026" 
 
 DB_FILE = "trading_history.csv"
@@ -148,6 +149,8 @@ with tab1:
 
     if st.session_state['scan_results'] is not None:
         edited_df = st.data_editor(st.session_state['scan_results'], column_config={"Pilih": st.column_config.CheckboxColumn("Pantau"), "Chart": st.column_config.LinkColumn("Grafik"), "Kualitas": st.column_config.TextColumn("Fundamental"), "ROE (%)": st.column_config.NumberColumn("ROE", format="%.1f%%")}, hide_index=True, use_container_width=True)
+        
+        # --- PERBAIKAN DI SINI (NOTIFIKASI) ---
         if st.button("💾 MASUKKAN KE WATCHLIST"):
             selected = edited_df[edited_df["Pilih"] == True]["Stock"].tolist()
             if selected:
@@ -155,11 +158,19 @@ with tab1:
                 new = [s for s in selected if s not in wl["Stock"].values]
                 if new: 
                     pd.concat([wl, pd.DataFrame([{"Stock": s} for s in new])], ignore_index=True).to_csv(WATCHLIST_FILE, index=False)
-                    st.success(f"✅ {len(new)} Saham masuk Watchlist!")
+                    
+                    # Tampilkan pesan sukses
+                    st.success(f"✅ Berhasil! {len(new)} saham ({', '.join(new)}) telah ditambahkan ke Watchlist.")
+                    
+                    # Jeda waktu agar pesan terbaca sebelum refresh
+                    time.sleep(1.5) 
                     st.rerun()
-                else: st.toast("Saham sudah ada di Watchlist.")
+                else: 
+                    st.warning("⚠️ Semua saham yang dipilih SUDAH ADA di Watchlist Anda sebelumnya.")
+            else: 
+                st.warning("⚠️ Belum ada saham yang dicentang. Silakan centang kotak 'Pantau' di tabel.")
 
-# --- TAB 2: WATCHLIST (SIMULASI GURU & EXECUTION) ---
+# --- TAB 2: WATCHLIST ---
 with tab2:
     col_h1, col_h2 = st.columns([3, 1])
     with col_h1:
@@ -204,16 +215,10 @@ with tab2:
                     if col_b1.button("Hapus", key=f"del_{d['Stock']}"):
                         wl = wl[wl.Stock != d['Stock']]; wl.to_csv(WATCHLIST_FILE, index=False); st.rerun()
                         
-                    # --- TOMBOL BELI DENGAN PESAN KHUSUS (TANPA BALON) ---
                     if col_b2.button(f"🛒 SIMULASI BELI {d['Stock']}", type="primary", key=f"buy_{d['Stock']}"):
-                        # 1. Catat ke Database
                         pd.concat([load_data(DB_FILE, ["Tgl", "Stock", "Entry"]), pd.DataFrame([{"Tgl": datetime.now().strftime("%Y-%m-%d"), "Stock": d['Stock'], "Entry": d['Price']}])], ignore_index=True).to_csv(DB_FILE, index=False)
+                        wl = wl[wl.Stock != d['Stock']]; wl.to_csv(WATCHLIST_FILE, index=False)
                         
-                        # 2. Hapus dari Watchlist
-                        wl = wl[wl.Stock != d['Stock']]
-                        wl.to_csv(WATCHLIST_FILE, index=False)
-                        
-                        # 3. PESAN EDUKATIF & DISCLAIMER (PROFESIONAL)
                         st.success(f"✅ **DATA TERSIMPAN.** {d['Stock']} berhasil dicatat ke Portfolio Admin.")
                         st.warning(f"""
                         🔔 **PENGINGAT EKSEKUSI:**
@@ -222,7 +227,6 @@ with tab2:
                         👉 **LANGKAH SELANJUTNYA:**
                         Silakan buka aplikasi Sekuritas Anda (IPOT/Stockbit/Ajaib) dan lakukan Order Buy untuk **{d['Stock']}** secara real.
                         """)
-                        
                         st.stop() 
 
 # --- TAB 3: PORTFOLIO (PIN PROTECTED) ---
