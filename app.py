@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 
 # --- 1. SETTING UTAMA ---
-st.set_page_config(page_title="EDU-VEST V145: TRANSPARENT WL", layout="wide")
+st.set_page_config(page_title="EDU-VEST V146: EXECUTION", layout="wide")
 DB_FILE = "trading_history.csv"
 WATCHLIST_FILE = "my_watchlist.csv"
 
@@ -16,7 +16,7 @@ def load_data(file, columns):
     if os.path.exists(file): return pd.read_csv(file)
     return pd.DataFrame(columns=columns)
 
-# --- 2. ENGINE HYBRID (TAB 1) ---
+# --- 2. ENGINE HYBRID (SCREENER) ---
 def get_hybrid_data(ticker):
     try:
         t = yf.Ticker(f"{ticker}.JK" if ".JK" not in ticker else ticker)
@@ -51,7 +51,7 @@ def analyze_hybrid_logic(df, info, mode):
         if close > ma50 and df['Low'].iloc[-1] <= (ma50 * 1.05) and close > prev_close: return True, fund_status, roe, per
     return False, "", 0, 0
 
-# --- 3. ENGINE DETAIL TEKNIKAL & TIMING (TAB 2 - DIPERJELAS) ---
+# --- 3. ENGINE TEKNIKAL DETIL (WATCHLIST) ---
 def get_technical_detail(ticker):
     try:
         t = yf.Ticker(f"{ticker}.JK" if ".JK" not in ticker else ticker)
@@ -59,52 +59,39 @@ def get_technical_detail(ticker):
         if len(df) < 200: return None
         
         close = int(df['Close'].iloc[-1])
-        high_yest = int(df['High'].iloc[-2]) # High Kemarin (Untuk Reversal)
         ma50 = int(df['Close'].rolling(50).mean().iloc[-1])
         ma200 = int(df['Close'].rolling(200).mean().iloc[-1])
         rsi = ta.rsi(df['Close'], length=14).iloc[-1]
         
-        # A. ANALISA TREND (MA50 & MA200)
         if close > ma50 and ma50 > ma200: trend = f"🚀 Strong (>MA50 {ma50})"
         elif close > ma200: trend = f"📈 Uptrend (>MA200 {ma200})"
         elif close < ma200: trend = f"📉 Downtrend (<MA200 {ma200})"
         else: trend = "➡️ Sideways"
         
-        # B. ANALISA MOMENTUM (RSI 14)
-        if rsi < 30: mom = f"🔥 Oversold ({int(rsi)})"
-        elif rsi > 70: mom = f"⚠️ Overbought ({int(rsi)})"
-        else: mom = f"Netral ({int(rsi)})"
-        
-        # C. LOGIKA TIMING BELI (KONKRET)
-        timing = "⚪ Wait & See"
-        
-        # Skenario 1: Buy on Support (Trend Naik)
+        timing = "Wait"
         if close > ma50:
             dist = abs(close - ma50)/ma50
-            if dist < 0.05:
-                timing = f"🟢 BUY: Antri dekat {ma50}"
-            else:
-                timing = f"⏳ Tunggu koreksi ke {ma50}"
-                
-        # Skenario 2: Catch Reversal (Trend Turun tapi Murah)
-        elif close < ma200 and rsi < 35:
-             # Syarat Reversal: Harus tembus High kemarin
-             if close > high_yest:
-                 timing = "🟢 BUY: Sudah Rebound!"
-             else:
-                 timing = f"⏳ Tunggu Tembus {high_yest}"
+            if dist < 0.05: timing = f"🟢 BUY AREA: {ma50}-{close}"
+            else: timing = f"⏳ TUNGGU di {ma50}"
+        elif close < ma200 and rsi < 35: timing = "👀 WATCH REVERSAL"
+
+        # Hitung Support & Resist sederhana untuk Kalkulator
+        support = int(df['Low'].tail(20).min())
+        resistance = int(df['High'].tail(20).max())
 
         return {
             "Stock": ticker.replace(".JK",""),
             "Price": close,
-            "Trend (MA50/200)": trend,      # Jelas MA-nya
-            "Momentum (RSI 14)": mom,       # Jelas Indikatornya
-            "Timing Beli": timing,          # Jelas Angkanya
+            "Trend": trend,
+            "RSI": int(rsi),
+            "Timing": timing,
+            "Support": support,
+            "Resistance": resistance,
             "TV": f"https://www.tradingview.com/chart/?symbol=IDX:{ticker.replace('.JK','')}"
         }
     except: return None
 
-# --- ENGINE PORTO (SIMPLE) ---
+# --- ENGINE PORTO ---
 def get_porto_analysis(ticker, entry_price):
     try:
         t = yf.Ticker(f"{ticker}.JK" if ".JK" not in ticker else ticker)
@@ -117,8 +104,9 @@ def get_porto_analysis(ticker, entry_price):
     except: return 0, "0%", "-"
 
 # --- 4. TAMPILAN DASHBOARD ---
-st.title("💎 EDU-VEST: V145 (DETAIL TIMING)")
+st.title("💎 EDU-VEST: EXECUTION BRIDGE V146")
 
+# Panic Meter
 try:
     ihsg = yf.Ticker("^JKSE").history(period="2d")
     chg = ((ihsg['Close'].iloc[-1] - ihsg['Close'].iloc[-2]) / ihsg['Close'].iloc[-2]) * 100
@@ -126,13 +114,12 @@ try:
     else: st.success(f"🟢 MARKET NORMAL ({chg:.2f}%)")
 except: pass
 
-tab1, tab2, tab3, tab4 = st.tabs(["🔍 SCREENER", "⭐ WATCHLIST (DETAIL)", "📊 PORTO", "➕ INPUT"])
+tab1, tab2, tab3 = st.tabs(["1️⃣ SCREENER", "2️⃣ WATCHLIST & EKSEKUSI", "3️⃣ PETA PORTO"])
 
-# --- TAB 1: SCREENER (LOGIC V143) ---
+# --- TAB 1: SCREENER (SAMA SEPERTI V145) ---
 with tab1:
-    st.subheader("Cari Saham Bagus")
+    st.subheader("Langkah 1: Cari Kandidat Saham")
     mode = st.radio("Strategi:", ["Radar Krisis (Lihat Semua)", "Reversal (Pantulan)", "Breakout (Ledakan)", "Swing (Santai)"], horizontal=True)
-    
     if 'scan_results' not in st.session_state: st.session_state['scan_results'] = None
 
     if st.button("JALANKAN ANALISA"):
@@ -147,11 +134,7 @@ with tab1:
                 if lolos:
                     close = df['Close'].iloc[-1]
                     rsi = ta.rsi(df['Close'], length=14).iloc[-1]
-                    results.append({
-                        "Pilih": False, "Stock": t.replace(".JK",""), "Price": int(close),
-                        "Kualitas": f_stat, "ROE (%)": round(roe, 1), "PER (x)": round(per, 1),
-                        "Chart": f"https://www.tradingview.com/chart/?symbol=IDX:{t.replace('.JK','')}"
-                    })
+                    results.append({"Pilih": False, "Stock": t.replace(".JK",""), "Price": int(close), "Kualitas": f_stat, "ROE (%)": round(roe, 1), "Chart": f"https://www.tradingview.com/chart/?symbol=IDX:{t.replace('.JK','')}"})
         progress_bar.empty()
         if results:
             df_res = pd.DataFrame(results)
@@ -168,53 +151,97 @@ with tab1:
                 new = [s for s in selected if s not in wl["Stock"].values]
                 if new: pd.concat([wl, pd.DataFrame([{"Stock": s} for s in new])], ignore_index=True).to_csv(WATCHLIST_FILE, index=False); st.success("Disimpan!"); st.rerun()
 
-# --- TAB 2: WATCHLIST (TAMPILAN BARU V145) ---
+# --- TAB 2: WATCHLIST & EKSEKUSI (INTI PERUBAHAN) ---
 with tab2:
-    st.subheader("📋 Saringan 2: Pantauan Eksekusi")
-    st.caption("Fokus pada **Timing Beli**. Pastikan harga sesuai rencana sebelum eksekusi.")
-    
-    if st.button("🗑️ HAPUS SEMUA", type="secondary"):
-        if os.path.exists(WATCHLIST_FILE): os.remove(WATCHLIST_FILE); st.rerun()
-            
+    st.subheader("Langkah 2: Perencanaan & Eksekusi")
     wl = load_data(WATCHLIST_FILE, ["Stock"])
-    if not wl.empty:
-        wl_data = []
-        for s in wl['Stock']:
-            d = get_technical_detail(s)
-            if d: wl_data.append(d)
-        
-        # Menampilkan Tabel dengan Kolom yang Diminta
-        st.data_editor(
-            pd.DataFrame(wl_data),
-            column_config={
-                "Price": st.column_config.NumberColumn("Harga Last"),
-                "Trend (MA50/200)": st.column_config.TextColumn("Tren Utama", help="Menggunakan MA50 dan MA200"),
-                "Momentum (RSI 14)": st.column_config.TextColumn("Tenaga (RSI 14)", help="RSI 14 Hari. <30 Murah, >70 Mahal"),
-                "Timing Beli": st.column_config.TextColumn("Rencana Aksi (SOP)", help="Sinyal konkret kapan harus masuk"),
-                "TV": st.column_config.LinkColumn("Chart")
-            },
-            hide_index=True,
-            use_container_width=True
-        )
-    else: st.info("Watchlist Kosong. Ambil dari Screener dulu.")
+    
+    if wl.empty:
+        st.info("Watchlist Kosong. Silakan pilih saham dari Tab 1.")
+    else:
+        # Tampilkan setiap saham dalam kartu (Expander)
+        for idx, row in wl.iterrows():
+            d = get_technical_detail(row['Stock'])
+            if d:
+                # Judul Kartu: Nama Saham + Harga + Sinyal
+                with st.expander(f"📊 {d['Stock']} | Rp {d['Price']} | {d['Timing']}"):
+                    c1, c2, c3 = st.columns(3)
+                    c1.write(f"**Tren:** {d['Trend']}")
+                    c2.write(f"**RSI:** {d['RSI']}")
+                    c3.write(f"[Lihat Chart TV]({d['TV']})")
+                    
+                    st.divider()
+                    
+                    # FITUR KALKULATOR LOT (MONEY MANAGEMENT)
+                    st.write("🧮 **Kalkulator & Eksekusi**")
+                    col_input1, col_input2, col_input3 = st.columns(3)
+                    
+                    modal_trading = col_input1.number_input("Modal Siap (Rp):", value=10000000, key=f"mod_{d['Stock']}")
+                    risiko_persen = col_input2.number_input("Risiko Max (%):", value=2.0, key=f"ris_{d['Stock']}")
+                    stop_loss_price = col_input3.number_input("Titik Cut Loss:", value=d['Support'], key=f"sl_{d['Stock']}")
+                    
+                    # Hitung Lot Aman
+                    if stop_loss_price < d['Price']:
+                        risiko_rupiah = modal_trading * (risiko_persen / 100)
+                        jarak_sl = d['Price'] - stop_loss_price
+                        max_lembar = risiko_rupiah / jarak_sl
+                        max_lot = int(max_lembar / 100)
+                        
+                        st.info(f"💡 Agar risiko maksimal **Rp {int(risiko_rupiah):,}**, beli maksimal: **{max_lot} Lot**.")
+                    else:
+                        st.warning("Harga Cut Loss harus di bawah harga sekarang.")
+                    
+                    st.divider()
+                    
+                    # TOMBOL EKSEKUSI
+                    # Jika ditekan: Simpan ke Porto, Hapus dari WL
+                    col_btn1, col_btn2 = st.columns([1, 4])
+                    if col_btn2.button(f"✅ BELI {d['Stock']} SEKARANG", type="primary", key=f"buy_{d['Stock']}"):
+                        # 1. Simpan ke Portfolio
+                        porto_db = load_data(DB_FILE, ["Tgl", "Stock", "Entry"])
+                        new_porto = pd.DataFrame([{"Tgl": datetime.now().strftime("%Y-%m-%d"), "Stock": d['Stock'], "Entry": d['Price']}])
+                        pd.concat([porto_db, new_porto], ignore_index=True).to_csv(DB_FILE, index=False)
+                        
+                        # 2. Hapus dari Watchlist
+                        wl = wl[wl.Stock != d['Stock']]
+                        wl.to_csv(WATCHLIST_FILE, index=False)
+                        
+                        st.success(f"{d['Stock']} berhasil dibeli dan dipindah ke Peta Porto!")
+                        st.rerun()
 
-# --- TAB 3: PORTO (SIMPLE) ---
+                    if col_btn1.button("🗑️ Hapus", key=f"del_{d['Stock']}"):
+                        wl = wl[wl.Stock != d['Stock']]
+                        wl.to_csv(WATCHLIST_FILE, index=False)
+                        st.rerun()
+
+# --- TAB 3: PETA PORTO (SIMPLE & JELAS) ---
 with tab3:
-    st.subheader("Monitoring Portfolio")
-    if st.button("🚨 RESET PORTO"): os.remove(DB_FILE) if os.path.exists(DB_FILE) else None; st.rerun()
+    st.subheader("Langkah 3: Peta Portfolio (Monitoring)")
     df_p = load_data(DB_FILE, ["Tgl", "Stock", "Entry"])
-    if not df_p.empty:
+    
+    if df_p.empty:
+        st.info("Portfolio Kosong. Belum ada aset.")
+    else:
+        # Ringkasan Total
+        st.metric("Total Posisi Terbuka", f"{len(df_p)} Saham")
+        
+        st.write("---")
         for idx, row in df_p.iterrows():
             last, gl, act = get_porto_analysis(row['Stock'], row['Entry'])
-            c1, c2, c3, c4 = st.columns([1, 1, 2, 1])
-            c1.write(f"**{row['Stock']}**"); c2.write(f"G/L: {gl}"); c3.write(f"Saran: {act}")
-            if c4.button("🗑️", key=f"del_{idx}"): df_p.drop(idx).to_csv(DB_FILE, index=False); st.rerun()
+            
+            # Visualisasi Kartu Porto
+            cols = st.columns([2, 2, 2, 1])
+            cols[0].write(f"### {row['Stock']}")
+            cols[0].caption(f"Beli: {row['Entry']}")
+            
+            # Warna Profit/Loss
+            if "Profit" in act: cols[1].markdown(f"<h3 style='color:green'>{gl}</h3>", unsafe_allow_html=True)
+            elif "CUT" in act: cols[1].markdown(f"<h3 style='color:red'>{gl}</h3>", unsafe_allow_html=True)
+            else: cols[1].markdown(f"<h3>{gl}</h3>", unsafe_allow_html=True)
+            
+            cols[2].info(f"Saran: {act}")
+            
+            if cols[3].button("Jual/Hapus", key=f"sold_{idx}"):
+                df_p.drop(idx).to_csv(DB_FILE, index=False)
+                st.rerun()
             st.divider()
-
-# --- TAB 4: INPUT (SIMPLE) ---
-with tab4:
-    with st.form("manual"):
-        c1, c2 = st.columns(2)
-        s = c1.text_input("Kode:").upper(); p = c2.number_input("Harga:", step=1)
-        if st.form_submit_button("Simpan"):
-             pd.concat([load_data(DB_FILE, ["Tgl", "Stock", "Entry"]), pd.DataFrame([{"Tgl": datetime.now(), "Stock": s, "Entry": p}])], ignore_index=True).to_csv(DB_FILE, index=False); st.rerun()
