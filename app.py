@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 
 # --- 1. SETTING UTAMA ---
-st.set_page_config(page_title="EDU-VEST V142: SMART GUIDE", layout="wide")
+st.set_page_config(page_title="EDU-VEST V143: ONE CLICK", layout="wide")
 DB_FILE = "trading_history.csv"
 WATCHLIST_FILE = "my_watchlist.csv"
 
@@ -16,7 +16,7 @@ def load_data(file, columns):
     if os.path.exists(file): return pd.read_csv(file)
     return pd.DataFrame(columns=columns)
 
-# --- 2. ENGINE ANALISA HYBRID ---
+# --- 2. ENGINE HYBRID ---
 def get_hybrid_data(ticker):
     try:
         t = yf.Ticker(f"{ticker}.JK" if ".JK" not in ticker else ticker)
@@ -35,7 +35,6 @@ def analyze_hybrid_logic(df, info, mode):
     vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
     high_20 = df['High'].rolling(20).max().iloc[-2]
 
-    # Fundamental
     roe = info.get('returnOnEquity', 0) * 100 if info.get('returnOnEquity') else 0
     per = info.get('trailingPE', 999) if info.get('trailingPE') else 999
     
@@ -43,7 +42,6 @@ def analyze_hybrid_logic(df, info, mode):
     if roe > 10 and per < 20: fund_status = "✅ Sehat"
     if roe > 15 and per < 15: fund_status = "💎 Super (Murah & Bagus)"
 
-    # Filter Logic
     if mode == "Radar Krisis (Lihat Semua)": return True, fund_status, roe, per
     elif mode == "Reversal (Pantulan)":
         if rsi < 40 and close > prev_close: return True, fund_status, roe, per
@@ -82,7 +80,7 @@ def get_simple_analysis(ticker, is_portfolio=False, entry_price=0):
     except: return None
 
 # --- 4. TAMPILAN DASHBOARD ---
-st.title("💎 EDU-VEST: SMART GUIDE V142")
+st.title("💎 EDU-VEST: ONE CLICK WATCHLIST V143")
 
 try:
     ihsg = yf.Ticker("^JKSE").history(period="2d")
@@ -94,11 +92,15 @@ except: pass
 tab1, tab2, tab3, tab4 = st.tabs(["🔍 HYBRID SCREENER", "⭐ WATCHLIST", "📊 PORTO MONITOR", "➕ INPUT MANUAL"])
 
 with tab1:
-    st.subheader("Cari Saham Bagus (Teknikal + Fundamental)")
+    st.subheader("Cari Saham & Langsung Simpan")
     mode = st.radio("Pilih Strategi:", ["Radar Krisis (Lihat Semua)", "Reversal (Pantulan)", "Breakout (Ledakan)", "Swing (Santai)"], horizontal=True)
     
+    # State management agar hasil scan tidak hilang saat tombol diklik
+    if 'scan_results' not in st.session_state:
+        st.session_state['scan_results'] = None
+
     if st.button("JALANKAN ANALISA"):
-        st.write(f"⏳ Mengambil data Teknikal & Fundamental untuk mode: **{mode}**...")
+        st.write(f"⏳ Scanning mode: **{mode}**...")
         results = []
         progress_bar = st.progress(0)
         
@@ -111,7 +113,9 @@ with tab1:
                     close = df['Close'].iloc[-1]
                     rsi = ta.rsi(df['Close'], length=14).iloc[-1]
                     results.append({
-                        "Stock": t.replace(".JK",""), "Price": int(close), "RSI": round(rsi, 1),
+                        "Pilih": False, # Kolom Checkbox Default False
+                        "Stock": t.replace(".JK",""), 
+                        "Price": int(close), "RSI": round(rsi, 1),
                         "Kualitas": f_stat, "ROE (%)": round(roe, 1), "PER (x)": round(per, 1),
                         "Chart": f"https://www.tradingview.com/chart/?symbol=IDX:{t.replace('.JK','')}"
                     })
@@ -120,52 +124,51 @@ with tab1:
         if results:
             df_res = pd.DataFrame(results)
             if mode == "Radar Krisis (Lihat Semua)": df_res = df_res.sort_values(by="ROE (%)", ascending=False)
-            st.success(f"✅ Selesai! Ditemukan {len(df_res)} saham.")
-            st.data_editor(df_res, column_config={"Chart": st.column_config.LinkColumn("Buka TV"), "Kualitas": st.column_config.TextColumn("Kualitas", help="Super = ROE>15 & PER<15")}, hide_index=True)
-            
-            # --- BAGIAN BARU: PANDUAN EKSEKUSI (SOP) ---
-            st.divider()
-            st.subheader("💡 PANDUAN EKSEKUSI & SINYAL")
-            
-            if mode == "Radar Krisis (Lihat Semua)" or mode == "Reversal (Pantulan)":
-                st.warning("""
-                **⚠️ STRATEGI: MENANGKAP PISAU JATUH (COUNTER TREND)**
-                Saham di atas (seperti BRIS/ANTM) muncul karena **Fundamental Bagus** tapi **Harga Sedang Hancur**.
-                
-                **⛔ JANGAN LAKUKAN:**
-                * Jangan langsung Hajar Kanan (HAKA) jika chart masih merah tebal.
-                * Jangan All-in (Gunakan Money Management ketat).
-                
-                **✅ TUNGGU SINYAL INI (ENTRY TRIGGER):**
-                1.  **Candle Hijau Pertama:** Tunggu hari besok, apakah harga ditutup hijau?
-                2.  **Pola Hammer:** Muncul candle dengan ekor bawah panjang (seperti palu).
-                3.  **Tindakan:** Masukkan ke WATCHLIST dulu. Cicil beli HANYA JIKA harga mulai memantul naik.
-                """)
-            
-            elif mode == "Breakout (Ledakan)":
-                st.info("""
-                **🚀 STRATEGI: MENUNGGANGI OMBAK (FOLLOW TREND)**
-                Saham di atas sedang kuat menembus atap (Resistance).
-                
-                **✅ SINYAL VALID:**
-                1.  **Volume Tinggi:** Kenaikan harga disertai volume batang hijau yang tinggi.
-                2.  **Tindakan:** Boleh HAKA (Beli di harga offer) atau antri di harga penutupan kemarin.
-                3.  **Stop Loss:** Pasang ketat di bawah garis Breakout (3-5%).
-                """)
-                
-            elif mode == "Swing (Santai)":
-                st.success("""
-                **🌊 STRATEGI: MEMBELI SAAT DISKON (PULLBACK)**
-                Saham ini tren utamanya NAIK, tapi sedang istirahat sebentar.
-                
-                **✅ SINYAL MASUK:**
-                1.  **Pantulan MA50:** Harga menyentuh garis rata-rata 50 hari lalu mental naik.
-                2.  **Tindakan:** Cicil beli (Buy on Weakness) di area merah.
-                """)
-                
-        else: st.warning("Belum ada saham yang lolos kriteria gabungan saat ini.")
+            st.session_state['scan_results'] = df_res # Simpan ke session state
+        else:
+            st.warning("Belum ada saham yang lolos.")
+            st.session_state['scan_results'] = None
 
-# (Tab 2, 3, 4 tetap sama dengan V141)
+    # Tampilkan Hasil Scan dari Session State (Agar interaktif)
+    if st.session_state['scan_results'] is not None:
+        st.success(f"✅ Hasil Scan Tersedia: {len(st.session_state['scan_results'])} Saham")
+        
+        # Tabel Interaktif (Bisa dicentang)
+        edited_df = st.data_editor(
+            st.session_state['scan_results'],
+            column_config={
+                "Pilih": st.column_config.CheckboxColumn("Add WL?", help="Centang untuk simpan ke Watchlist"),
+                "Chart": st.column_config.LinkColumn("Buka TV"),
+                "Kualitas": st.column_config.TextColumn("Kualitas", help="Super = ROE>15 & PER<15")
+            },
+            hide_index=True,
+            key="data_editor"
+        )
+        
+        # Tombol Eksekusi Simpan
+        if st.button("💾 SIMPAN YANG DICENTANG KE WATCHLIST"):
+            selected_stocks = edited_df[edited_df["Pilih"] == True]["Stock"].tolist()
+            if selected_stocks:
+                wl = load_data(WATCHLIST_FILE, ["Stock"])
+                # Filter duplikat
+                new_entries = [s for s in selected_stocks if s not in wl["Stock"].values]
+                
+                if new_entries:
+                    new_df = pd.DataFrame([{"Stock": s} for s in new_entries])
+                    pd.concat([wl, new_df], ignore_index=True).to_csv(WATCHLIST_FILE, index=False)
+                    st.success(f"✅ Berhasil menambahkan: {', '.join(new_entries)} ke Watchlist!")
+                    st.rerun() # Refresh agar Watchlist di Tab 2 terupdate
+                else:
+                    st.warning("Saham yang dipilih sudah ada di Watchlist Bapak sebelumnya.")
+            else:
+                st.warning("⚠️ Belum ada saham yang dicentang di tabel atas.")
+
+            # Panduan Eksekusi (Tetap Ada)
+            st.divider()
+            if mode == "Radar Krisis (Lihat Semua)" or mode == "Reversal (Pantulan)":
+                st.warning("**⚠️ PANDUAN:** Saham di atas adalah 'Pisau Jatuh'. Masukkan Watchlist dulu, beli HANYA jika besok muncul Candle Hijau/Hammer.")
+
+# (Tab 2, 3, 4 Sama Persis dengan V141)
 with tab2: # Watchlist
     st.subheader("📊 Analisa Watchlist Anda")
     if st.button("🗑️ HAPUS WATCHLIST", type="secondary"):
