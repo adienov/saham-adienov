@@ -5,13 +5,17 @@ import pandas_ta as ta
 import os
 from datetime import datetime
 
-# --- 1. SETTING IDENTITAS BARU ---
+# --- 1. SETTING IDENTITAS ---
 st.set_page_config(
-    page_title="ADIENOV TRADING PRO", # Nama di Tab Browser
-    page_icon="🦅", # Ikon Elang (Simbol Fokus)
+    page_title="ADIENOV TRADING PRO",
+    page_icon="🦅",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+
+# --- KONFIGURASI KEAMANAN (PIN) ---
+# Silakan ganti angka ini dengan PIN rahasia Bapak
+SECRET_PIN = "135790" 
 
 # File Database
 DB_FILE = "trading_history.csv"
@@ -24,7 +28,7 @@ def load_data(file, columns):
     if os.path.exists(file): return pd.read_csv(file)
     return pd.DataFrame(columns=columns)
 
-# --- 2. ENGINE LOGIC (MESIN UTAMA) ---
+# --- 2. ENGINE LOGIC ---
 def get_hybrid_data(ticker):
     try:
         t = yf.Ticker(f"{ticker}.JK" if ".JK" not in ticker else ticker)
@@ -103,7 +107,6 @@ def get_porto_analysis(ticker, entry_price):
 
 # --- 3. UI DASHBOARD ---
 
-# Header Utama dengan Nama Baru
 st.title("📈 ADIENOV TRADING PRO")
 st.caption("Professional Trading System by Adien Novarisa")
 st.markdown("---")
@@ -116,9 +119,9 @@ try:
     else: st.success(f"🟢 MARKET: AMAN ({chg:.2f}%) - Strategi Normal.")
 except: pass
 
-tab1, tab2, tab3 = st.tabs(["🔍 STEP 1: SCREENER", "⚡ STEP 2: EXECUTION", "💼 STEP 3: PORTFOLIO"])
+tab1, tab2, tab3 = st.tabs(["🔍 STEP 1: SCREENER", "⚡ STEP 2: EXECUTION", "🔐 STEP 3: PORTFOLIO (LOCKED)"])
 
-# --- TAB 1: SCREENER ---
+# --- TAB 1: SCREENER (PUBLIC) ---
 with tab1:
     st.header("🔍 Radar Saham")
     mode = st.radio("Pilih Strategi:", ["Radar Diskon (Market Crash)", "Reversal (Pantulan)", "Breakout (Tren Naik)", "Swing (Koreksi Sehat)"], horizontal=True)
@@ -160,7 +163,7 @@ with tab1:
                     st.rerun()
                 else: st.toast("Saham sudah ada di Watchlist.")
 
-# --- TAB 2: WATCHLIST & RESET ---
+# --- TAB 2: WATCHLIST (PUBLIC) ---
 with tab2:
     col_h1, col_h2 = st.columns([3, 1])
     with col_h1:
@@ -203,35 +206,64 @@ with tab2:
                     col_b1, col_b2 = st.columns([1, 3])
                     if col_b1.button("Hapus", key=f"del_{d['Stock']}"):
                         wl = wl[wl.Stock != d['Stock']]; wl.to_csv(WATCHLIST_FILE, index=False); st.rerun()
+                    
+                    # NOTE: Tombol beli tetap ada agar guru bisa simulasi, 
+                    # tapi datanya akan masuk ke database rahasia yang tidak bisa mereka lihat.
                     if col_b2.button(f"🛒 BELI {d['Stock']} SEKARANG", type="primary", key=f"buy_{d['Stock']}"):
                         pd.concat([load_data(DB_FILE, ["Tgl", "Stock", "Entry"]), pd.DataFrame([{"Tgl": datetime.now().strftime("%Y-%m-%d"), "Stock": d['Stock'], "Entry": d['Price']}])], ignore_index=True).to_csv(DB_FILE, index=False)
                         wl = wl[wl.Stock != d['Stock']]; wl.to_csv(WATCHLIST_FILE, index=False); st.balloons(); st.success("Masuk Portfolio!"); st.rerun()
 
-# --- TAB 3: PORTFOLIO & RESET ---
+# --- TAB 3: PORTFOLIO (PIN PROTECTED) ---
 with tab3:
-    col_p1, col_p2 = st.columns([3, 1])
-    with col_p1: st.header("💼 Portfolio Adienov")
-    with col_p2:
-        if st.button("🚨 RESET PORTFOLIO", type="primary"):
-            if os.path.exists(DB_FILE): os.remove(DB_FILE); st.rerun()
+    st.header("🔐 Portfolio Administrator")
     
-    df_p = load_data(DB_FILE, ["Tgl", "Stock", "Entry"])
-    
-    if df_p.empty:
-        st.info("Belum ada aset.")
+    # Inisialisasi Status Login
+    if 'porto_unlocked' not in st.session_state:
+        st.session_state['porto_unlocked'] = False
+
+    # Logika Kunci / Buka
+    if not st.session_state['porto_unlocked']:
+        st.warning("🔒 Halaman ini terkunci karena berisi data aset pribadi.")
+        
+        with st.form("login_form"):
+            user_pin = st.text_input("Masukkan PIN Keamanan:", type="password")
+            if st.form_submit_button("BUKA AKSES"):
+                if user_pin == SECRET_PIN:
+                    st.session_state['porto_unlocked'] = True
+                    st.success("Akses Diterima.")
+                    st.rerun()
+                else:
+                    st.error("PIN Salah. Akses Ditolak.")
     else:
-        st.metric("Total Emiten", f"{len(df_p)}")
-        st.write("---")
-        for idx, row in df_p.iterrows():
-            last, gl, act = get_porto_analysis(row['Stock'], row['Entry'])
-            with st.container():
-                c1, c2, c3, c4 = st.columns([2, 2, 3, 1])
-                c1.markdown(f"### {row['Stock']}")
-                c1.caption(f"Buy: Rp {row['Entry']:,}")
-                if "Profit" in act: c2.markdown(f"<h3 style='color:#00C853'>{gl}</h3>", unsafe_allow_html=True)
-                elif "CUT" in act: c2.markdown(f"<h3 style='color:#D50000'>{gl}</h3>", unsafe_allow_html=True)
-                else: c2.markdown(f"<h3>{gl}</h3>", unsafe_allow_html=True)
-                c3.info(f"**Saran:** {act}")
-                if c4.button("Jual", key=f"sell_{idx}"):
-                    df_p.drop(idx).to_csv(DB_FILE, index=False); st.success("Done."); st.rerun()
-                st.markdown("---")
+        # --- KONTEN PORTFOLIO (HANYA MUNCUL JIKA PIN BENAR) ---
+        col_p1, col_p2 = st.columns([3, 1])
+        with col_p1: st.success("✅ Akses Administrator Terbuka")
+        with col_p2:
+            if st.button("🔒 KUNCI KEMBALI"):
+                st.session_state['porto_unlocked'] = False
+                st.rerun()
+        
+        # Tombol Reset Total (Hanya muncul jika sudah login)
+        if st.button("🚨 RESET TOTAL PORTFOLIO", type="primary"):
+            if os.path.exists(DB_FILE): os.remove(DB_FILE); st.rerun()
+        
+        df_p = load_data(DB_FILE, ["Tgl", "Stock", "Entry"])
+        
+        if df_p.empty:
+            st.info("Belum ada aset.")
+        else:
+            st.metric("Total Emiten", f"{len(df_p)}")
+            st.write("---")
+            for idx, row in df_p.iterrows():
+                last, gl, act = get_porto_analysis(row['Stock'], row['Entry'])
+                with st.container():
+                    c1, c2, c3, c4 = st.columns([2, 2, 3, 1])
+                    c1.markdown(f"### {row['Stock']}")
+                    c1.caption(f"Buy: Rp {row['Entry']:,}")
+                    if "Profit" in act: c2.markdown(f"<h3 style='color:#00C853'>{gl}</h3>", unsafe_allow_html=True)
+                    elif "CUT" in act: c2.markdown(f"<h3 style='color:#D50000'>{gl}</h3>", unsafe_allow_html=True)
+                    else: c2.markdown(f"<h3>{gl}</h3>", unsafe_allow_html=True)
+                    c3.info(f"**Saran:** {act}")
+                    if c4.button("Jual", key=f"sell_{idx}"):
+                        df_p.drop(idx).to_csv(DB_FILE, index=False); st.success("Done."); st.rerun()
+                    st.markdown("---")
