@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 
 # --- 1. SETTING DASHBOARD ---
-st.set_page_config(page_title="EDU-VEST V135: LOGIC FIX", layout="wide")
+st.set_page_config(page_title="EDU-VEST V136: SMART LOADER", layout="wide")
 DB_FILE = "trading_history.csv"
 WATCHLIST_FILE = "my_watchlist.csv"
 
@@ -17,7 +17,7 @@ def load_data(file, columns):
     if os.path.exists(file): return pd.read_csv(file)
     return pd.DataFrame(columns=columns)
 
-# --- 2. ENGINE ANALISA UMUM (UNTUK WATCHLIST & PORTO) ---
+# --- 2. ENGINE ANALISA UMUM ---
 def get_general_analysis(ticker, is_portfolio=False, entry_price=0):
     try:
         t = yf.Ticker(f"{ticker}.JK" if ".JK" not in ticker else ticker)
@@ -44,13 +44,13 @@ def get_general_analysis(ticker, is_portfolio=False, entry_price=0):
         return {"Price": last_p, "Status": status, "Action": action, "GL": gl_str}
     except: return None
 
-# --- 3. ENGINE SCREENER KHUSUS (LOGIC TERPISAH) ---
+# --- 3. ENGINE SCREENER SPESIFIK ---
 def run_specific_screener(mode):
     results = []
     for t in SYARIAH_TICKERS:
         try:
             stock = yf.Ticker(t)
-            df = stock.history(period="6mo") # Data cukup 6 bulan
+            df = stock.history(period="6mo")
             if len(df) < 50: continue
             
             close = df['Close'].iloc[-1]
@@ -64,40 +64,36 @@ def run_specific_screener(mode):
             match = False
             note = ""
             
-            # LOGIC 1: REVERSAL (Pantulan dari Bawah)
+            # LOGIC REVERSAL
             if mode == "Reversal (Pantulan)":
-                # Syarat: RSI Oversold (<35) ATAU Harga mantul dari Bollinger Bawah (Simpel: Harga < MA50 tapi Hijau)
                 if rsi < 40 and close > prev_close:
                     match = True
-                    note = f"Oversold (RSI {int(rsi)}) + Rebound"
+                    note = f"RSI Jenuh ({int(rsi)}) + Rebound Candle"
             
-            # LOGIC 2: BREAKOUT (Tembus Atas)
+            # LOGIC BREAKOUT
             elif mode == "Breakout (Ledakan)":
-                # Syarat: Tembus High 20 Hari & Volume Besar
                 if close > high_20 and vol_now > vol_avg:
                     match = True
-                    note = "New High + Big Volume"
+                    note = "New High 20 Hari + Volume Spike"
             
-            # LOGIC 3: SWING (Trend Follow)
+            # LOGIC SWING
             elif mode == "Swing (Santai)":
-                # Syarat: Di atas MA50, tapi koreksi sedikit (Low dekat MA50)
                 if close > ma50 and df['Low'].iloc[-1] <= (ma50 * 1.05) and close > prev_close:
                     match = True
-                    note = "Pantulan di Support MA50"
+                    note = "Pantulan Sehat di Support MA50"
 
             if match:
                 results.append({
                     "Stock": t.replace(".JK",""), "Price": int(close), 
-                    "Mode": mode.split()[0], "Alasan": note,
+                    "Mode": mode.split()[0], "Alasan Teknis": note,
                     "Chart": f"https://www.tradingview.com/chart/?symbol=IDX:{t.replace('.JK','')}"
                 })
         except: continue
     return pd.DataFrame(results)
 
 # --- 4. TAMPILAN UTAMA ---
-st.title("🛡️ EDU-VEST: LOGIC FIX V135")
+st.title("🛡️ EDU-VEST: SMART LOADER V136")
 
-# Panic Meter
 try:
     ihsg = yf.Ticker("^JKSE").history(period="2d")
     chg = ((ihsg['Close'].iloc[-1] - ihsg['Close'].iloc[-2]) / ihsg['Close'].iloc[-2]) * 100
@@ -113,13 +109,21 @@ with tab1:
     mode = st.radio("Pilih Strategi:", ["Reversal (Pantulan)", "Breakout (Ledakan)", "Swing (Santai)"], horizontal=True)
     
     if st.button("JALANKAN SCANNER"):
-        with st.spinner(f"Menganalisa pola {mode}..."):
+        # --- LOGIC TEXT EDUKATIF DI SINI ---
+        if mode == "Reversal (Pantulan)":
+            msg = "🔍 Sedang mencari saham Jenuh Jual (RSI < 40) yang mulai melawan naik..."
+        elif mode == "Breakout (Ledakan)":
+            msg = "🚀 Sedang mendeteksi saham yang menembus High 20 Hari Terakhir dengan Volume Tinggi..."
+        else:
+            msg = "🌊 Sedang memindai saham Uptrend (di atas MA50) yang koreksi sehat ke Support..."
+            
+        with st.spinner(msg): # Pesan loading berubah sesuai strategi
             df_res = run_specific_screener(mode)
             if not df_res.empty:
-                st.success(f"Ditemukan {len(df_res)} saham {mode}!")
+                st.success(f"Ditemukan {len(df_res)} saham sesuai kriteria {mode}!")
                 st.data_editor(df_res, column_config={"Chart": st.column_config.LinkColumn("Buka TV")}, hide_index=True)
             else:
-                st.warning(f"Tidak ada saham yang memenuhi syarat {mode} saat ini (Wajar jika market crash).")
+                st.warning(f"Tidak ada saham yang lolos. (Artinya: Belum ada saham yang memenuhi syarat '{msg}')")
 
 with tab2:
     st.subheader("📊 Analisa Watchlist")
