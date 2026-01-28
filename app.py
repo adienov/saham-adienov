@@ -7,7 +7,7 @@ from datetime import datetime
 
 # --- 1. SETTING TAMPILAN PROFESIONAL ---
 st.set_page_config(
-    page_title="ADIEN NOVARISA TRADING PRO",
+    page_title="ADIENOV TRADING PRO",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -104,7 +104,7 @@ def get_porto_analysis(ticker, entry_price):
 
 # --- 3. UI DASHBOARD (RE-DESIGNED) ---
 
-st.title("📈 EDU-VEST PRO: Trading Assistant")
+st.title("📈 ADIENOV PRO: Trading Assistant")
 st.markdown("---")
 
 # Panic Meter dengan Bahasa Lebih Halus
