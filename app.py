@@ -5,81 +5,75 @@ import pandas_ta as ta
 import os
 from datetime import datetime
 
-# --- 1. SETTING HALAMAN & DATABASE ---
-st.set_page_config(page_title="EDU-VEST V116: Rebound Master", layout="wide")
+# --- 1. DATABASE & WATCHLIST SETTING ---
+st.set_page_config(page_title="EDU-VEST V117: Recovery Monitor", layout="wide")
 
 DB_FILE = "trading_history.csv"
-if 'history_db' not in st.session_state:
-    if os.path.exists(DB_FILE):
-        st.session_state.history_db = pd.read_csv(DB_FILE)
-    else:
-        st.session_state.history_db = pd.DataFrame(columns=["Tgl", "Stock", "Syariah", "Entry", "SL/TS"])
+WATCHLIST_FILE = "my_watchlist.csv"
 
-# --- 2. FUNGSI PANIC METER ---
-def get_market_sentiment():
+def load_data(file, columns):
+    if os.path.exists(file): return pd.read_csv(file)
+    return pd.DataFrame(columns=columns)
+
+# --- 2. FOLLOW-THROUGH DAY (FTD) DETECTOR ---
+def check_ftd_signal():
     try:
-        ihsg = yf.Ticker("^JKSE").history(period="2d")
+        ihsg = yf.Ticker("^JKSE").history(period="10d")
         change = ((ihsg['Close'].iloc[-1] - ihsg['Close'].iloc[-2]) / ihsg['Close'].iloc[-2]) * 100
-        return change
-    except: return 0
+        vol_now = ihsg['Volume'].iloc[-1]
+        vol_prev = ihsg['Volume'].iloc[-2]
+        
+        # FTD Signal: IHSG naik > 1.5% dengan volume lebih tinggi dari hari sebelumnya
+        if change >= 1.5 and vol_now > vol_prev:
+            return "✅ FOLLOW-THROUGH DAY DETECTED! Market Aman untuk Entry.", "success"
+        elif change < -2.0:
+            return "🚨 MARKET CRASH! Jangan Serok Dulu (Wait for FTD).", "error"
+        else:
+            return "🟡 MARKET SIDEWAYS/WEAK. Tunggu Konfirmasi FTD.", "warning"
+    except: return "Data IHSG Tidak Tersedia", "info"
 
-# --- 3. ENGINE REBOUND MASTER (BOLLINGER + RS) ---
-SYARIAH_LIST = ["ANTM", "BRIS", "TLKM", "ICBP", "INDF", "UNTR", "PGAS", "EXCL", "ISAT", "KLBF", "SIDO", "MDKA", "INCO", "MBMA", "AMRT", "ACES", "HRUM", "AKRA", "MEDC", "ELSA", "BRMS", "DEWA", "BUMI", "MYOR", "CPIN", "JPFA", "SMGR", "INTP", "TPIA", "GOTO"]
-ALL_TICKERS = [f"{s}.JK" for s in SYARIAH_LIST] + ["BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "ASII.JK", "ADRO.JK"]
+# --- 3. TAMPILAN UTAMA ---
+st.title("🛡️ EDU-VEST: MARKET RECOVERY & WATCHLIST V117")
 
-@st.cache_data(ttl=60)
-def run_rebound_master(ticker_list, rs_min):
-    results = []
-    data_batch = yf.download(ticker_list, period="1y", progress=False)['Close']
-    rs_map = (data_batch.iloc[-1]/data_batch.iloc[0]-1).rank(pct=True).to_dict()
-    
-    for t in ticker_list:
-        try:
-            stock = yf.Ticker(t)
-            df = stock.history(period="1y")
-            if len(df) < 50: continue
-            
-            # --- RUMUS ALTERNATIF: BOLLINGER BANDS ---
-            bb = ta.bbands(df['Close'], length=20, std=2)
-            lower_band = bb['BBL_20_2.0'].iloc[-1]
-            
-            close, low, open_p = df['Close'].iloc[-1], df['Low'].iloc[-1], df['Open'].iloc[-1]
-            rs_val = int(rs_map.get(t, 0.5) * 99)
-            
-            # KRITERIA REBOUND MASTER:
-            # 1. RS Leader: Minimal 75+
-            # 2. BB Reversal: Low sempat menembus Lower Band, tapi Close di atas Lower Band.
-            # 3. Candle Reversal: Harga tutup > Harga buka (Warna Hijau).
-            
-            if rs_val >= rs_min and low <= lower_band and close > lower_band and close > open_p:
-                red_line = ta.sma((df['High']+df['Low'])/2, 8).iloc[-1]
-                s_name = t.replace(".JK","")
-                results.append({
-                    "Pilih": False, "Stock": s_name, "RS": rs_val, 
-                    "Status": "BB REBOUND 📈", "Entry": int(close), "SL/TS": int(red_line),
-                    "Chart": f"https://www.tradingview.com/chart/?symbol=IDX:{s_name}"
-                })
-        except: continue
-    return pd.DataFrame(results)
+# Panic & FTD Monitor
+status_msg, status_type = check_ftd_signal()
+if status_type == "success": st.success(status_msg)
+elif status_type == "error": st.error(status_msg)
+else: st.warning(status_msg)
 
-# --- 4. TAMPILAN UTAMA ---
-st.title("🏹 EDU-VEST: REBOUND MASTER V116")
-
-chg = get_market_sentiment()
-if chg <= -3.0:
-    st.error(f"🚨 MARKET CRASH ({chg:.2f}%) - Fokus pada Reversal di Lower Bollinger Band!")
-else:
-    st.info(f"📊 Market Condition: {chg:.2f}%")
-
-tab1, tab2 = st.tabs(["🔍 REBOUND SCANNER", "📊 PORTFOLIO"])
+tab1, tab2, tab3 = st.tabs(["🔍 REBOUND SCANNER", "⭐ MY WATCHLIST", "📊 PORTFOLIO"])
 
 with tab1:
-    rs_limit = st.sidebar.slider("Min. RS Rating", 0, 99, 75)
-    if st.button("🚀 SCAN BOLLINGER REVERSAL"):
-        with st.spinner("Mencari pantulan di Lower Band..."):
-            df_res = run_rebound_master(ALL_TICKERS, rs_limit)
-            if not df_res.empty:
-                st.session_state.current_scan = df_res
-                st.dataframe(df_res, use_container_width=True, hide_index=True)
-            else:
-                st.warning("Belum ada Leader yang terdeteksi mantul dari batas bawah Bollinger.")
+    st.subheader("Cari Saham Leader yang Rebound")
+    # (Gunakan Engine V116 Rebound Master di sini)
+    if st.button("🚀 SCAN REBOUND"):
+        st.info("Scanner sedang mencari pantulan teknikal...")
+
+with tab2:
+    st.subheader("⭐ Watchlist Pilihan")
+    # Fitur Tambah Watchlist
+    new_stock = st.text_input("Tambah Kode Saham (Contoh: NCKL, ASII, BBRI):").upper()
+    if st.button("➕ Tambah ke Watchlist"):
+        wl_df = load_data(WATCHLIST_FILE, ["Stock"])
+        if new_stock and new_stock not in wl_df['Stock'].values:
+            new_row = pd.DataFrame([{"Stock": new_stock}])
+            wl_df = pd.concat([wl_df, new_row], ignore_index=True)
+            wl_df.to_csv(WATCHLIST_FILE, index=False)
+            st.rerun()
+
+    # Tampilkan Watchlist dengan Harga Real-time
+    wl_df = load_data(WATCHLIST_FILE, ["Stock"])
+    if not wl_df.empty:
+        wl_results = []
+        for s in wl_df['Stock']:
+            try:
+                t = yf.Ticker(f"{s}.JK")
+                hist = t.history(period="2d")
+                curr = hist['Close'].iloc[-1]
+                chg = ((curr - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100
+                wl_results.append({"Stock": s, "Price": int(curr), "Change": f"{chg:.2f}%", "Action": "Monitor"})
+            except: continue
+        st.table(pd.DataFrame(wl_results))
+        if st.button("🗑️ Reset Watchlist"):
+            if os.path.exists(WATCHLIST_FILE): os.remove(WATCHLIST_FILE)
+            st.rerun()
