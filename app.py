@@ -5,21 +5,18 @@ import pandas_ta as ta
 import os
 from datetime import datetime
 
-# --- 1. SETTING UTAMA & DATABASE ---
-st.set_page_config(page_title="EDU-VEST V141: FINAL LOCKED", layout="wide")
+# --- 1. SETTING UTAMA ---
+st.set_page_config(page_title="EDU-VEST V142: SMART GUIDE", layout="wide")
 DB_FILE = "trading_history.csv"
 WATCHLIST_FILE = "my_watchlist.csv"
 
-# Daftar Saham Syariah (Bisa ditambah)
 SYARIAH_TICKERS = ["ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "MDKA.JK", "INCO.JK", "MEDC.JK", "BRMS.JK", "DEWA.JK", "BUMI.JK", "ADRO.JK", "PTBA.JK", "MYOR.JK", "JPFA.JK"]
 
 def load_data(file, columns):
     if os.path.exists(file): return pd.read_csv(file)
     return pd.DataFrame(columns=columns)
 
-# --- 2. ENGINE ANALISA (DUA MESIN) ---
-
-# MESIN A: HYBRID (Untuk Screener - Teknikal + Fundamental)
+# --- 2. ENGINE ANALISA HYBRID ---
 def get_hybrid_data(ticker):
     try:
         t = yf.Ticker(f"{ticker}.JK" if ".JK" not in ticker else ticker)
@@ -57,7 +54,7 @@ def analyze_hybrid_logic(df, info, mode):
 
     return False, "", 0, 0
 
-# MESIN B: SIMPLE (Untuk Watchlist & Porto - Cepat & To The Point)
+# --- 3. ENGINE SIMPLE (WATCHLIST & PORTO) ---
 def get_simple_analysis(ticker, is_portfolio=False, entry_price=0):
     try:
         t = yf.Ticker(f"{ticker}.JK" if ".JK" not in ticker else ticker)
@@ -68,7 +65,6 @@ def get_simple_analysis(ticker, is_portfolio=False, entry_price=0):
         ma50 = df['Close'].rolling(50).mean().iloc[-1]
         ma200 = df['Close'].rolling(200).mean().iloc[-1]
         
-        # Status
         if last_p < ma200: status, reco = "Trend Rusak", "🔴 JAUHI"
         elif last_p > ma50: status, reco = "Strong Momentum", "🟢 BAGUS"
         else: status, reco = "Konsolidasi", "⚪ TUNGGU"
@@ -85,20 +81,19 @@ def get_simple_analysis(ticker, is_portfolio=False, entry_price=0):
         return {"Price": last_p, "Status": status, "Action": action, "GL": gl_str, "TV": f"https://www.tradingview.com/chart/?symbol=IDX:{ticker.replace('.JK','')}"}
     except: return None
 
-# --- 3. TAMPILAN DASHBOARD ---
-st.title("💎 EDU-VEST: FINAL LOCKED V141")
+# --- 4. TAMPILAN DASHBOARD ---
+st.title("💎 EDU-VEST: SMART GUIDE V142")
 
-# Panic Meter
 try:
     ihsg = yf.Ticker("^JKSE").history(period="2d")
     chg = ((ihsg['Close'].iloc[-1] - ihsg['Close'].iloc[-2]) / ihsg['Close'].iloc[-2]) * 100
-    if chg <= -3.0: st.error(f"🚨 MARKET CRASH ({chg:.2f}%) - Hati-hati!")
+    if chg <= -3.0: st.error(f"🚨 MARKET CRASH ({chg:.2f}%)")
     else: st.success(f"🟢 MARKET NORMAL ({chg:.2f}%)")
 except: pass
 
 tab1, tab2, tab3, tab4 = st.tabs(["🔍 HYBRID SCREENER", "⭐ WATCHLIST", "📊 PORTO MONITOR", "➕ INPUT MANUAL"])
 
-with tab1: # Fitur Screener V140 (Yang Bapak Suka)
+with tab1:
     st.subheader("Cari Saham Bagus (Teknikal + Fundamental)")
     mode = st.radio("Pilih Strategi:", ["Radar Krisis (Lihat Semua)", "Reversal (Pantulan)", "Breakout (Ledakan)", "Swing (Santai)"], horizontal=True)
     
@@ -110,7 +105,6 @@ with tab1: # Fitur Screener V140 (Yang Bapak Suka)
         for i, t in enumerate(SYARIAH_TICKERS):
             progress_bar.progress((i + 1) / len(SYARIAH_TICKERS))
             df, info = get_hybrid_data(t)
-            
             if df is not None and info is not None:
                 lolos, f_stat, roe, per = analyze_hybrid_logic(df, info, mode)
                 if lolos:
@@ -128,13 +122,54 @@ with tab1: # Fitur Screener V140 (Yang Bapak Suka)
             if mode == "Radar Krisis (Lihat Semua)": df_res = df_res.sort_values(by="ROE (%)", ascending=False)
             st.success(f"✅ Selesai! Ditemukan {len(df_res)} saham.")
             st.data_editor(df_res, column_config={"Chart": st.column_config.LinkColumn("Buka TV"), "Kualitas": st.column_config.TextColumn("Kualitas", help="Super = ROE>15 & PER<15")}, hide_index=True)
+            
+            # --- BAGIAN BARU: PANDUAN EKSEKUSI (SOP) ---
+            st.divider()
+            st.subheader("💡 PANDUAN EKSEKUSI & SINYAL")
+            
+            if mode == "Radar Krisis (Lihat Semua)" or mode == "Reversal (Pantulan)":
+                st.warning("""
+                **⚠️ STRATEGI: MENANGKAP PISAU JATUH (COUNTER TREND)**
+                Saham di atas (seperti BRIS/ANTM) muncul karena **Fundamental Bagus** tapi **Harga Sedang Hancur**.
+                
+                **⛔ JANGAN LAKUKAN:**
+                * Jangan langsung Hajar Kanan (HAKA) jika chart masih merah tebal.
+                * Jangan All-in (Gunakan Money Management ketat).
+                
+                **✅ TUNGGU SINYAL INI (ENTRY TRIGGER):**
+                1.  **Candle Hijau Pertama:** Tunggu hari besok, apakah harga ditutup hijau?
+                2.  **Pola Hammer:** Muncul candle dengan ekor bawah panjang (seperti palu).
+                3.  **Tindakan:** Masukkan ke WATCHLIST dulu. Cicil beli HANYA JIKA harga mulai memantul naik.
+                """)
+            
+            elif mode == "Breakout (Ledakan)":
+                st.info("""
+                **🚀 STRATEGI: MENUNGGANGI OMBAK (FOLLOW TREND)**
+                Saham di atas sedang kuat menembus atap (Resistance).
+                
+                **✅ SINYAL VALID:**
+                1.  **Volume Tinggi:** Kenaikan harga disertai volume batang hijau yang tinggi.
+                2.  **Tindakan:** Boleh HAKA (Beli di harga offer) atau antri di harga penutupan kemarin.
+                3.  **Stop Loss:** Pasang ketat di bawah garis Breakout (3-5%).
+                """)
+                
+            elif mode == "Swing (Santai)":
+                st.success("""
+                **🌊 STRATEGI: MEMBELI SAAT DISKON (PULLBACK)**
+                Saham ini tren utamanya NAIK, tapi sedang istirahat sebentar.
+                
+                **✅ SINYAL MASUK:**
+                1.  **Pantulan MA50:** Harga menyentuh garis rata-rata 50 hari lalu mental naik.
+                2.  **Tindakan:** Cicil beli (Buy on Weakness) di area merah.
+                """)
+                
         else: st.warning("Belum ada saham yang lolos kriteria gabungan saat ini.")
 
-with tab2: # Fitur Watchlist Lengkap
+# (Tab 2, 3, 4 tetap sama dengan V141)
+with tab2: # Watchlist
     st.subheader("📊 Analisa Watchlist Anda")
-    if st.button("🗑️ HAPUS SEMUA WATCHLIST", type="secondary"):
+    if st.button("🗑️ HAPUS WATCHLIST", type="secondary"):
         if os.path.exists(WATCHLIST_FILE): os.remove(WATCHLIST_FILE); st.rerun()
-            
     wl = load_data(WATCHLIST_FILE, ["Stock"])
     if not wl.empty:
         res_wl = []
@@ -144,34 +179,25 @@ with tab2: # Fitur Watchlist Lengkap
         st.data_editor(pd.DataFrame(res_wl), column_config={"Chart": st.column_config.LinkColumn("Buka TV")}, hide_index=True)
     else: st.info("Watchlist Kosong.")
 
-with tab3: # Fitur Porto Monitor Lengkap
+with tab3: # Porto
     st.subheader("📊 Portfolio & Action Plan")
-    if st.button("🚨 RESET TOTAL PORTO", type="primary"):
+    if st.button("🚨 RESET PORTO", type="primary"):
         if os.path.exists(DB_FILE): os.remove(DB_FILE); st.rerun()
-            
     df_p = load_data(DB_FILE, ["Tgl", "Stock", "Entry"])
     if not df_p.empty:
         for idx, row in df_p.iterrows():
             d = get_simple_analysis(row['Stock'], True, row['Entry'])
             if d:
                 c1, c2, c3, c4 = st.columns([1, 1, 2, 1])
-                c1.write(f"**{row['Stock']}**")
-                c2.write(f"G/L: {d['GL']}")
-                c3.write(f"Saran: {d['Action']}")
-                if c4.button("🗑️ Hapus", key=f"del_{idx}"):
-                    df_p.drop(idx).to_csv(DB_FILE, index=False); st.rerun()
+                c1.write(f"**{row['Stock']}**"); c2.write(f"G/L: {d['GL']}"); c3.write(f"Saran: {d['Action']}")
+                if c4.button("🗑️", key=f"del_{idx}"): df_p.drop(idx).to_csv(DB_FILE, index=False); st.rerun()
                 st.divider()
-    else: st.info("Portfolio Kosong. Belum ada aset yang dicatat.")
+    else: st.info("Portfolio Kosong.")
 
-with tab4: # Fitur Input Manual Lengkap
+with tab4: # Input
     st.subheader("➕ Tambah Data Manual")
-    with st.form("manual_porto"):
-        st.write("**Catat Transaksi Beli (Porto)**")
+    with st.form("manual"):
         c1, c2 = st.columns(2)
-        s_in = c1.text_input("Kode:").upper()
-        p_in = c2.number_input("Harga Beli:", step=1)
-        if st.form_submit_button("Masukan ke Portfolio"):
-            df_p = load_data(DB_FILE, ["Tgl", "Stock", "Entry"])
-            pd.concat([df_p, pd.DataFrame([{"Tgl": datetime.now(), "Stock": s_in, "Entry": p_in}])], ignore_index=True).to_csv(DB_FILE, index=False)
-            st.success("Tersimpan!")
-            st.rerun()
+        s = c1.text_input("Kode:").upper(); p = c2.number_input("Harga:", step=1)
+        if st.form_submit_button("Simpan"):
+             pd.concat([load_data(DB_FILE, ["Tgl", "Stock", "Entry"]), pd.DataFrame([{"Tgl": datetime.now(), "Stock": s, "Entry": p}])], ignore_index=True).to_csv(DB_FILE, index=False); st.rerun()
