@@ -106,43 +106,41 @@ def format_large_number(num):
     if num >= 1_000_000: return f"{num/1_000_000:.1f}jt"
     return str(int(num))
 
-# --- GENERATOR TABEL HTML YANG STABIL ---
+# --- GENERATOR TABEL HTML (PERBAIKAN TOTAL) ---
 def render_html_table(df, title, bg_color, text_color, val_col):
     if df.empty: return ""
     
-    # Header Table
-    html_code = f"""
-    <div style="background-color: {bg_color}; border-radius: 8px; padding: 10px; margin-bottom: 10px; border: 1px solid #ddd;">
-        <div style="text-align: center; font-weight: bold; color: {text_color}; font-size: 13px; margin-bottom: 5px; text-transform: uppercase;">
-            {title}
-        </div>
-        <table style="width: 100%; border-collapse: collapse; font-size: 12px; background: rgba(255,255,255,0.6); border-radius: 4px;">
-            <tr style="border-bottom: 1px solid #ccc;">
-                <th style="padding: 4px; text-align: center; width: 40%;">KODE</th>
-                <th style="padding: 4px; text-align: center; width: 60%;">NILAI</th>
-            </tr>
-    """
-    
-    # Rows
+    # Membangun baris tabel satu per satu untuk menghindari error indentasi
+    rows_html = ""
     for _, row in df.iterrows():
         val_display = ""
-        # Logic Format
         if val_col == "Chg":
-            color = "#007f00" if row['Chg'] >= 0 else "#d32f2f" # Hijau Tua / Merah Tua
+            color = "#007f00" if row['Chg'] >= 0 else "#d32f2f"
             val_display = f"<span style='color:{color}; font-weight:bold;'>{row['Chg']:+.2f}%</span>"
         elif val_col == "Vol":
             val_display = format_large_number(row['Vol'])
         elif val_col == "Val":
             val_display = format_large_number(row['Val'])
             
-        html_code += f"""
-            <tr style="border-bottom: 1px solid #eee;">
-                <td style="padding: 4px; text-align: center; font-weight: 600;">{row['Stock']}</td>
-                <td style="padding: 4px; text-align: center;">{val_display}</td>
-            </tr>
-        """
-        
-    html_code += "</table></div>"
+        rows_html += f"<tr><td style='padding:4px; text-align:center; border-bottom:1px solid #ddd; font-weight:600;'>{row['Stock']}</td><td style='padding:4px; text-align:center; border-bottom:1px solid #ddd;'>{val_display}</td></tr>"
+
+    # Menyusun container utama
+    html_code = f"""
+    <div style='background-color:{bg_color}; border-radius:8px; padding:10px; margin-bottom:10px; border:1px solid {text_color};'>
+        <div style='text-align:center; font-weight:bold; color:{text_color}; font-size:14px; margin-bottom:5px; text-transform:uppercase;'>{title}</div>
+        <table style='width:100%; border-collapse:collapse; font-size:12px; background-color:rgba(255,255,255,0.7); border-radius:5px;'>
+            <thead>
+                <tr style='border-bottom:2px solid {text_color};'>
+                    <th style='padding:5px; text-align:center;'>Emiten</th>
+                    <th style='padding:5px; text-align:center;'>Nilai</th>
+                </tr>
+            </thead>
+            <tbody>
+                {rows_html}
+            </tbody>
+        </table>
+    </div>
+    """
     return html_code
 
 # --- FETCH DATA ---
@@ -211,7 +209,7 @@ def display_market_dashboard():
     st.info(f"📢 **OUTLOOK:** {generate_outlook_text(ihsg_now, ma200, rsi)}")
     st.write("")
 
-    # --- TABLES (HTML FIXED) ---
+    # --- TABLES (FINAL VISUAL FIX) ---
     df_m = pd.DataFrame(movers)
     if not df_m.empty:
         g = df_m.sort_values(by="Chg", ascending=False).head(3)
@@ -220,6 +218,7 @@ def display_market_dashboard():
         m = df_m.sort_values(by="Val", ascending=False).head(3)
         
         c_g, c_l, c_v, c_m = st.columns(4)
+        # Panggil fungsi render_html_table yang sudah diperbaiki
         with c_g: st.markdown(render_html_table(g, "🏆 GAINERS", "#e8f5e9", "#2e7d32", "Chg"), unsafe_allow_html=True)
         with c_l: st.markdown(render_html_table(l, "🔻 LOSERS", "#ffebee", "#c62828", "Chg"), unsafe_allow_html=True)
         with c_v: st.markdown(render_html_table(v, "🔥 VOLUME", "#e3f2fd", "#1565c0", "Vol"), unsafe_allow_html=True)
@@ -283,13 +282,12 @@ with tab1:
             bar.progress((i+1)/len(IDX_TICKERS))
             df, inf = get_hybrid_data(t)
             if df is not None:
-                # Logic Simple
                 C = df['Close'].iloc[-1]; C1 = df['Close'].iloc[-2]
                 rsi = ta.rsi(df['Close'], 14).iloc[-1]
                 ok = False
                 if "Diskon" in mode: ok = True
                 elif "Reversal" in mode:
-                    if rsi < 45 and C > df['Open'].iloc[-1]: ok = True # Simple Reversal
+                    if rsi < 45 and C > df['Open'].iloc[-1]: ok = True
                 elif "Breakout" in mode:
                     if C == df['High'].rolling(20).max().iloc[-1]: ok = True
                 elif "Swing" in mode:
