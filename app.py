@@ -1,10 +1,9 @@
 import streamlit as st
-import streamlit.components.v1 as components # Modul baru untuk Widget Chart
+import streamlit.components.v1 as components
 import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
 import os
-import time
 from datetime import datetime
 
 # --- 1. SETTING IDENTITAS & KONFIGURASI ---
@@ -95,9 +94,8 @@ def format_large_number(num):
     if num >= 1_000_000: return f"{num/1_000_000:.1f}jt"
     return str(int(num))
 
-# --- GENERATOR CHART TRADINGVIEW PROFESIONAL ---
+# --- WIDGET CHART TRADINGVIEW PROFESIONAL (ADVANCED) ---
 def render_tv_widget(symbol):
-    # Kode HTML/JS untuk Widget TradingView
     html_code = f"""
     <div class="tradingview-widget-container">
       <div id="tradingview_chart"></div>
@@ -106,7 +104,7 @@ def render_tv_widget(symbol):
       new TradingView.widget(
       {{
         "width": "100%",
-        "height": 400,
+        "height": 500,
         "symbol": "IDX:{symbol}",
         "interval": "D",
         "timezone": "Asia/Jakarta",
@@ -127,7 +125,7 @@ def render_tv_widget(symbol):
       </script>
     </div>
     """
-    components.html(html_code, height=410)
+    components.html(html_code, height=510)
 
 # --- HTML TABLE GENERATOR ---
 def render_html_table(df, title, bg_color, text_color, val_col):
@@ -250,59 +248,68 @@ display_market_dashboard()
 
 tab1, tab2, tab3 = st.tabs(["🔍 SCREENER & ANALYST", "⚡ EXECUTION", "🔐 PORTFOLIO"])
 
-# --- TAB 1 (SPLIT LAYOUT: X-RAY + EDUKASI) ---
+# --- TAB 1 (SPLIT LAYOUT) ---
 with tab1:
-    col_left, col_right = st.columns(2)
+    col_left, col_right = st.columns([1.5, 1]) # Kolom Kiri Lebih Lebar untuk Chart
     
-    # --- KOLOM KIRI: X-RAY SAHAM ---
+    # --- KOLOM KIRI: X-RAY SAHAM (AUTO LOAD CHART) ---
     with col_left:
         with st.container(border=True):
             st.subheader("🕵️ X-Ray Saham (Professional Chart)")
-            c_in, c_btn = st.columns([2, 1])
-            with c_in: txt_in = st.text_input("Kode Saham (Cth: BBCA):", placeholder="Ketik Kode...").upper()
-            with c_btn: 
-                st.write(""); st.write("") 
-                btn_cek = st.button("🔍 Cek", type="primary", use_container_width=True)
             
-            if btn_cek and txt_in:
-                # 1. Tampilkan Data Singkat
-                d_s = get_technical_detail(txt_in)
-                if d_s is not None:
-                    cp = d_s['Price']
-                    rsi_disp = str(int(d_s['RSI'])) if pd.notna(d_s['RSI']) else "N/A"
-                    ma200_disp = str(int(d_s['MA200'])) if pd.notna(d_s['MA200']) and d_s['MA200'] > 0 else "-"
-                    
-                    k1, k2 = st.columns(2)
-                    k1.metric(txt_in, f"Rp {int(cp):,}")
-                    k2.info(f"**{d_s['Trend']}**")
-                    st.write(f"RSI: {rsi_disp} | MA200: {ma200_disp}")
-                    
-                    # 2. TAMPILKAN WIDGET CHART (Fitur Baru)
-                    st.write("---")
-                    render_tv_widget(txt_in)
-                    
-                else: st.error("Saham tidak ditemukan / Data tidak tersedia.")
+            # Input Saham (Default BBCA agar chart langsung muncul)
+            c_in, c_btn = st.columns([3, 1])
+            with c_in: 
+                # Session State untuk menyimpan saham terakhir
+                if 'xray_ticker' not in st.session_state: st.session_state['xray_ticker'] = "BBCA"
+                txt_in = st.text_input("Kode Saham:", value=st.session_state['xray_ticker']).upper()
+            with c_btn: 
+                st.write(""); st.write("")
+                btn_cek = st.button("🔍 CEK", type="primary", use_container_width=True)
+            
+            # Update session state jika tombol ditekan
+            if btn_cek: st.session_state['xray_ticker'] = txt_in
+            
+            # Render Chart Langsung
+            render_tv_widget(st.session_state['xray_ticker'])
     
-    # --- KOLOM KANAN: PANDUAN EDUKASI ---
+    # --- KOLOM KANAN: DATA & PANDUAN ---
     with col_right:
+        # DATA TEKNIKAL SINGKAT
         with st.container(border=True):
-            st.subheader("📖 Cara Baca Sinyal")
+            st.markdown(f"#### 📊 Data Teknikal: {st.session_state['xray_ticker']}")
+            
+            # Ambil Data
+            d_s = get_technical_detail(st.session_state['xray_ticker'])
+            if d_s is not None:
+                cp = d_s['Price']
+                rsi_disp = str(int(d_s['RSI'])) if pd.notna(d_s['RSI']) else "N/A"
+                ma200_disp = str(int(d_s['MA200'])) if pd.notna(d_s['MA200']) and d_s['MA200'] > 0 else "-"
+                
+                k1, k2 = st.columns(2)
+                k1.metric("Harga", f"Rp {int(cp):,}")
+                k2.info(f"**{d_s['Trend']}**")
+                st.markdown(f"**RSI:** {rsi_disp} | **MA200:** {ma200_disp}")
+            else:
+                st.warning("Menunggu data...")
+
+        # PANDUAN EDUKASI
+        with st.container(border=True):
+            st.subheader("📖 Kamus Indikator")
             st.markdown("""
             * **MA200 (Garis Tren):**
-                * Harga > MA200 = **Aman (Uptrend)**.
-                * Jika data "N/A", gunakan Chart.
+                * Di atas Grafik = **Downtrend (Hati-hati)**.
+                * Di bawah Grafik = **Uptrend (Aman)**.
             * **RSI (Momentum):**
-                * RSI < 30 = **Murah (Diskon)**.
-                * RSI > 70 = **Mahal (Rawan Jual)**.
-            * **Volume:**
-                * Indikator "Meledak" = Minat besar.
+                * < 30: **Diskon (Potensi Pantulan)**.
+                * > 70: **Mahal (Potensi Turun)**.
+            * **Volume:** Batang hijau tinggi artinya banyak pembeli masuk (Bandar Akumulasi).
             """)
-            st.caption("💡 *Tips: Beli saat Tren Naik (di atas MA200) dan RSI sedang Murah.*")
 
     st.write("")
     st.markdown("---")
     
-    # --- BAGIAN BAWAH: RADAR MARKET (SCANNER WITH DESCRIPTIONS) ---
+    # --- BAGIAN BAWAH: RADAR MARKET (SCANNER) ---
     st.header("📡 Radar Market (Scanner)")
     
     if 'mode' not in st.session_state: st.session_state['mode'] = "Radar Diskon (Market Crash)"
@@ -318,7 +325,6 @@ with tab1:
             bar.progress((i+1)/len(IDX_TICKERS))
             df, inf = get_hybrid_data(t)
             if df is not None:
-                # Basic Data
                 C = df['Close'].iloc[-1]; C1 = df['Close'].iloc[-2]
                 O = df['Open'].iloc[-1]
                 rsi = ta.rsi(df['Close'], 14).iloc[-1]
@@ -345,7 +351,6 @@ with tab1:
                 roe = inf.get('returnOnEquity', 0) * 100 if inf else 0
                 roe_txt = f"{roe:.1f}% ({'BAGUS' if roe > 10 else 'KURANG'})"
 
-                # Filter Strategies
                 ok = False
                 if "Diskon" in mode: ok = True
                 elif "Reversal" in mode:
@@ -373,14 +378,7 @@ with tab1:
         else: st.warning("Tidak ada saham sesuai kriteria.")
 
     if st.session_state.get('scan') is not None:
-        edf = st.data_editor(
-            st.session_state['scan'], 
-            column_config={
-                "Chg%": st.column_config.NumberColumn("Chg%", format="%.2f%%")
-            }, 
-            hide_index=True, 
-            use_container_width=True
-        )
+        edf = st.data_editor(st.session_state['scan'], column_config={"Chg%": st.column_config.NumberColumn("Chg%", format="%.2f%%")}, hide_index=True, use_container_width=True)
         if st.button("Simpan ke Watchlist"): st.success("Tersimpan!")
 
 # TAB 2 & 3 DEFAULT
