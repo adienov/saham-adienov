@@ -120,7 +120,7 @@ def fetch_dashboard_data():
     except:
         return None, None, None, []
 
-# --- FUNGSI TAMPILAN DASHBOARD ---
+# --- FUNGSI TAMPILAN DASHBOARD (CUSTOM HTML CENTERED) ---
 def display_market_dashboard():
     ihsg_now, ihsg_chg, usd_now, movers = fetch_dashboard_data()
     
@@ -143,11 +143,31 @@ def display_market_dashboard():
     with c_date:
         st.markdown(f"<p style='text-align: right; color: gray;'>📅 {get_indo_date()}</p>", unsafe_allow_html=True)
     
-    with st.container(border=True):
-        k1, k2 = st.columns(2)
-        k1.metric("🇮🇩 IHSG (Composite)", f"{ihsg_now:,.2f}", f"{ihsg_chg:.2f}%")
-        k2.metric("🇺🇸 USD/IDR", f"Rp {usd_now:,.0f}", "")
+    # --- KARTU IHSG & USD (CENTERED & COLORED) ---
+    col_ihsg, col_usd = st.columns(2)
     
+    # Warna Angka IHSG (Merah jika turun, Hijau jika naik)
+    color_ihsg = "#d32f2f" if ihsg_chg < 0 else "#388e3c"
+    
+    with col_ihsg:
+        st.markdown(f"""
+        <div style="text-align: center; background-color: #e3f2fd; padding: 15px; border-radius: 10px; border: 1px solid #bbdefb; margin-bottom: 10px;">
+            <p style="margin:0; font-size:14px; color:#555; font-weight:bold;">🇮🇩 IHSG (COMPOSITE)</p>
+            <h2 style="margin:5px 0; color: #000; font-size: 32px;">{ihsg_now:,.2f}</h2>
+            <p style="margin:0; color: {color_ihsg}; font-weight:bold; font-size: 16px;">{ihsg_chg:+.2f}%</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with col_usd:
+        st.markdown(f"""
+        <div style="text-align: center; background-color: #f1f8e9; padding: 15px; border-radius: 10px; border: 1px solid #c5e1a5; margin-bottom: 10px;">
+            <p style="margin:0; font-size:14px; color:#555; font-weight:bold;">🇺🇸 USD/IDR</p>
+            <h2 style="margin:5px 0; color: #000; font-size: 32px;">Rp {usd_now:,.0f}</h2>
+            <p style="margin:0; color: #555; font-size: 16px;">Currency Rate</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # TABEL GAINERS & LOSERS
     c1, c2 = st.columns(2)
     with c1:
         st.success("🏆 TOP GAINERS (Kenaikan Tertinggi)")
@@ -168,7 +188,7 @@ def display_market_dashboard():
 
 # --- 3. UI UTAMA APLIKASI ---
 
-st.title("NOVA QUANTUM ANALYTICS")
+st.title("NOVA QUANTUM")
 st.caption("Professional Trading System by Adien Novarisa")
 
 display_market_dashboard()
