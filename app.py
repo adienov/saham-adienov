@@ -21,7 +21,7 @@ SECRET_PIN = "2026"
 TV_CHART_ID = "q94KuJTY" 
 
 # 👇 MASUKKAN LINK GRUP WA DI BAWAH INI 👇
-LINK_WA = "https://chat.whatsapp.com/GANTILINKDISINI" 
+LINK_WA = "https://chat.whatsapp.com/https://chat.whatsapp.com/IwsFmoVxlNPHy6Sc1vaAqd?mode=gi_t" 
 # ==========================================
 
 # DATABASE FILES
@@ -107,65 +107,68 @@ def get_indo_date():
     month_name = months[now.strftime("%B")]
     return f"{day_name}, {now.strftime('%d')} {month_name} {now.strftime('%Y')}"
 
+def format_large_number(num):
+    if num >= 1_000_000_000_000: return f"{num/1_000_000_000_000:.1f}T"
+    if num >= 1_000_000_000: return f"{num/1_000_000_000:.1f}M"
+    if num >= 1_000_000: return f"{num/1_000_000:.1f}jt"
+    return str(int(num))
+
 # --- OPTIMASI SPEED: CACHING ---
 @st.cache_data(ttl=300)
 def fetch_dashboard_data():
     try:
-        # 1. Market Data (AMBIL 2 TAHUN AGAR MA200 AMAN)
         ihsg = yf.Ticker("^JKSE").history(period="2y") 
         usd = yf.Ticker("IDR=X").history(period="1d")
-        
-        # 2. Commodities Data
         gold = yf.Ticker("GC=F").history(period="1d")
         oil = yf.Ticker("CL=F").history(period="1d")
 
         ihsg_now = ihsg['Close'].iloc[-1]
         ihsg_chg = ((ihsg_now - ihsg['Close'].iloc[-2]) / ihsg['Close'].iloc[-2]) * 100
         usd_now = usd['Close'].iloc[-1]
-        
-        # Data Outlook
         ma200_ihsg = ihsg['Close'].rolling(200).mean().iloc[-1]
         rsi_ihsg = ta.rsi(ihsg['Close'], length=14).iloc[-1]
         
-        # Data Komoditas
         commo_data = {
             "Gold": {"Price": gold['Close'].iloc[-1], "Chg": ((gold['Close'].iloc[-1] - gold['Open'].iloc[-1])/gold['Open'].iloc[-1])*100},
             "Oil": {"Price": oil['Close'].iloc[-1], "Chg": ((oil['Close'].iloc[-1] - oil['Open'].iloc[-1])/oil['Open'].iloc[-1])*100}
         }
         
-        # 3. Top Movers
         movers = []
         for t in IDX_TICKERS:
             try:
                 tk = yf.Ticker(f"{t}.JK" if ".JK" not in t else t)
                 hist = tk.history(period="2d")
                 if len(hist) >= 2:
-                    chg = ((hist['Close'].iloc[-1] - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100
-                    movers.append({"Stock": t.replace(".JK",""), "Chg": chg})
+                    close_now = hist['Close'].iloc[-1]
+                    chg = ((close_now - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100
+                    vol = hist['Volume'].iloc[-1]
+                    val = close_now * vol # Estimasi Value Transaksi
+                    
+                    movers.append({
+                        "Stock": t.replace(".JK",""), 
+                        "Chg": chg,
+                        "Vol": vol,
+                        "Val": val
+                    })
             except: pass
             
         return ihsg_now, ihsg_chg, usd_now, ma200_ihsg, rsi_ihsg, commo_data, movers
     except: return None, None, None, None, None, None, []
 
-# --- LOGIC TEXT OUTLOOK PROFESIONAL ---
+# --- LOGIC TEXT OUTLOOK ---
 def generate_outlook_text(price, ma200, rsi):
-    if pd.isna(price) or pd.isna(ma200) or pd.isna(rsi):
-        return "Data teknikal IHSG sedang dimuat ulang..."
-        
+    if pd.isna(price) or pd.isna(ma200) or pd.isna(rsi): return "Data teknikal IHSG sedang dimuat ulang..."
     trend_txt = ""
     action_txt = ""
-    
-    # 1. Analisa Trend (Price vs MA200)
     if price > ma200:
-        trend_txt = "Secara teknikal jangka panjang, IHSG berada dalam fase **BULLISH (Tren Naik)**."
-        if rsi > 70: action_txt = "Namun indikator momentum menunjukkan area jenuh beli. **Waspada potensi aksi ambil untung (Profit Taking)** dalam jangka pendek."
-        elif rsi > 50: action_txt = "Momentum pasar cukup stabil. Sentimen pembelian masih terjaga dengan baik."
-        else: action_txt = "Terjadi koreksi wajar dalam tren naik. Bisa dimanfaatkan untuk **Akumulasi Bertahap (Buy on Weakness)**."
+        trend_txt = "Secara teknikal, IHSG berada dalam fase **BULLISH (Tren Naik)**."
+        if rsi > 70: action_txt = "Momentum jenuh beli. **Waspada profit taking**."
+        elif rsi > 50: action_txt = "Momentum pasar stabil."
+        else: action_txt = "Koreksi wajar, manfaatkan untuk **Buy on Weakness**."
     else:
-        trend_txt = "Secara teknikal, IHSG masih bergerak di bawah resisten kuat (MA200) atau fase **KONSOLIDASI/BEARISH**."
-        if rsi < 30: action_txt = "Indikator momentum menunjukkan area jenuh jual (Oversold). Potensi terjadinya **Pantulan Teknis (Rebound)** cukup besar."
-        else: action_txt = "Disarankan untuk lebih **Defensif/Wait and See** hingga terbentuk konfirmasi pola pembalikan arah."
-        
+        trend_txt = "IHSG masih **KONSOLIDASI/BEARISH** di bawah MA200."
+        if rsi < 30: action_txt = "Momentum jenuh jual. Potensi **Rebound**."
+        else: action_txt = "Disarankan **Wait and See**."
     return f"{trend_txt} {action_txt}"
 
 # --- FUNGSI TAMPILAN DASHBOARD ---
@@ -176,80 +179,68 @@ def display_market_dashboard():
         st.error("Gagal memuat data pasar. Cek koneksi internet.")
         return
 
-    # HEADER & TANGGAL
     c_title, c_date = st.columns([2, 1])
     with c_title: st.markdown("### 📊 MARKET DASHBOARD")
     with c_date:
         st.markdown(f"<p style='text-align: right; color: gray; margin-bottom: 0px;'>📅 {get_indo_date()}</p>", unsafe_allow_html=True)
-        st.markdown(f"<p style='text-align: right; color: #f57c00; font-size: 12px; margin-top: 0px;'>⚠️ Data Delayed ~15 Min (Yahoo Finance)</p>", unsafe_allow_html=True)
+        st.markdown(f"<p style='text-align: right; color: #f57c00; font-size: 11px; margin-top: 0px;'>⚠️ Data Delayed ~15 Min (Yahoo Finance)</p>", unsafe_allow_html=True)
     
-    # --- ROW 1: METRICS UTAMA (IHSG, USD, GOLD, OIL) ---
-    c_idx, c_usd, c_gold, c_oil = st.columns(4)
+    # ROW 1: METRICS
+    c1, c2, c3, c4 = st.columns(4)
+    col_ihsg = "#d32f2f" if ihsg_chg < 0 else "#388e3c"
     
-    color_ihsg = "#d32f2f" if ihsg_chg < 0 else "#388e3c"
-    
-    with c_idx:
-        st.markdown(f"""
-        <div style="text-align: center; background-color: #e3f2fd; padding: 10px; border-radius: 8px; border: 1px solid #bbdefb;">
-            <p style="margin:0; font-size:11px; color:#555; font-weight:bold;">🇮🇩 IHSG</p>
-            <h4 style="margin:2px 0; color: #000;">{ihsg_now:,.0f}</h4>
-            <p style="margin:0; color: {color_ihsg}; font-weight:bold; font-size: 13px;">{ihsg_chg:+.2f}%</p>
-        </div>""", unsafe_allow_html=True)
-        
-    with c_usd:
-        st.markdown(f"""
-        <div style="text-align: center; background-color: #f1f8e9; padding: 10px; border-radius: 8px; border: 1px solid #c5e1a5;">
-            <p style="margin:0; font-size:11px; color:#555; font-weight:bold;">🇺🇸 USD/IDR</p>
-            <h4 style="margin:2px 0; color: #000;">Rp {usd_now:,.0f}</h4>
-            <p style="margin:0; color: #555; font-size: 13px;">Rate</p>
-        </div>""", unsafe_allow_html=True)
-    
-    with c_gold:
-        st.markdown(f"""
-        <div style="text-align: center; background-color: #fff8e1; padding: 10px; border-radius: 8px; border: 1px solid #ffecb3;">
-            <p style="margin:0; font-size:11px; color:#555; font-weight:bold;">🥇 GOLD</p>
-            <h4 style="margin:2px 0; color: #000;">${commo['Gold']['Price']:,.0f}</h4>
-            <p style="margin:0; color: #555; font-size: 13px;">{commo['Gold']['Chg']:.2f}%</p>
-        </div>""", unsafe_allow_html=True)
-        
-    with c_oil:
-        st.markdown(f"""
-        <div style="text-align: center; background-color: #eceff1; padding: 10px; border-radius: 8px; border: 1px solid #cfd8dc;">
-            <p style="margin:0; font-size:11px; color:#555; font-weight:bold;">🛢️ OIL (WTI)</p>
-            <h4 style="margin:2px 0; color: #000;">${commo['Oil']['Price']:,.1f}</h4>
-            <p style="margin:0; color: #555; font-size: 13px;">{commo['Oil']['Chg']:.2f}%</p>
-        </div>""", unsafe_allow_html=True)
+    with c1: st.markdown(f"<div style='text-align:center; background:#e3f2fd; padding:10px; border-radius:8px;'><p style='margin:0; font-size:11px; font-weight:bold;'>🇮🇩 IHSG</p><h4 style='margin:2px 0;'>{ihsg_now:,.0f}</h4><p style='margin:0; color:{col_ihsg}; font-size:12px;'>{ihsg_chg:+.2f}%</p></div>", unsafe_allow_html=True)
+    with c2: st.markdown(f"<div style='text-align:center; background:#f1f8e9; padding:10px; border-radius:8px;'><p style='margin:0; font-size:11px; font-weight:bold;'>🇺🇸 USD/IDR</p><h4 style='margin:2px 0;'>Rp {usd_now:,.0f}</h4><p style='margin:0; color:#555; font-size:12px;'>Rate</p></div>", unsafe_allow_html=True)
+    with c3: st.markdown(f"<div style='text-align:center; background:#fff8e1; padding:10px; border-radius:8px;'><p style='margin:0; font-size:11px; font-weight:bold;'>🥇 GOLD</p><h4 style='margin:2px 0;'>${commo['Gold']['Price']:,.0f}</h4><p style='margin:0; color:#555; font-size:12px;'>{commo['Gold']['Chg']:.2f}%</p></div>", unsafe_allow_html=True)
+    with c4: st.markdown(f"<div style='text-align:center; background:#eceff1; padding:10px; border-radius:8px;'><p style='margin:0; font-size:11px; font-weight:bold;'>🛢️ OIL</p><h4 style='margin:2px 0;'>${commo['Oil']['Price']:,.1f}</h4><p style='margin:0; color:#555; font-size:12px;'>{commo['Oil']['Chg']:.2f}%</p></div>", unsafe_allow_html=True)
 
     st.write("")
     
-    # --- ROW 2: MARKET OUTLOOK (FULL WIDTH) ---
+    # ROW 2: MARKET OUTLOOK
     outlook_msg = generate_outlook_text(ihsg_now, ma200, rsi)
-    st.info(f"📢 **MARKET OUTLOOK (IHSG):**\n\n{outlook_msg}")
+    st.info(f"📢 **MARKET OUTLOOK:** {outlook_msg}")
 
     st.write("")
     
-    # --- ROW 3: GAINERS & LOSERS ---
+    # --- ROW 3: COMPACT TABLES (4 COLUMN GRID) ---
+    # Memproses Data Movers
     df_movers = pd.DataFrame(movers)
     if not df_movers.empty:
-        df_movers = df_movers.sort_values(by="Chg", ascending=False)
-        top_gainers = df_movers.head(3) 
-        top_losers = df_movers.tail(3).sort_values(by="Chg", ascending=True) 
+        # 1. Gainers
+        df_gain = df_movers.sort_values(by="Chg", ascending=False).head(3)[['Stock', 'Chg']]
+        # 2. Losers
+        df_loss = df_movers.sort_values(by="Chg", ascending=True).head(3)[['Stock', 'Chg']]
+        # 3. Top Volume (Ramai)
+        df_vol = df_movers.sort_values(by="Vol", ascending=False).head(3)[['Stock', 'Vol']]
+        df_vol['Vol'] = df_vol['Vol'].apply(format_large_number) # Format angka
+        # 4. Top Value (Big Money/Asing Proxy)
+        df_val = df_movers.sort_values(by="Val", ascending=False).head(3)[['Stock', 'Val']]
+        df_val['Val'] = df_val['Val'].apply(format_large_number) # Format angka
     else:
-        top_gainers, top_losers = pd.DataFrame(), pd.DataFrame()
+        df_gain, df_loss, df_vol, df_val = pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-    c1, c2 = st.columns(2)
-    with c1:
-        st.success("🏆 TOP GAINERS (Kenaikan Tertinggi)")
-        if not top_gainers.empty:
-            df_gain = top_gainers[['Stock', 'Chg']].copy().rename(columns={'Stock': 'Emiten', 'Chg': 'Naik'})
-            st.dataframe(df_gain, column_config={"Emiten": st.column_config.TextColumn("Kode"), "Naik": st.column_config.NumberColumn("Kenaikan", format="+%.2f%%")}, hide_index=True, use_container_width=True)
-        else: st.write("-")
-    with c2:
-        st.error("🔻 TOP LOSERS (Koreksi Terdalam)")
-        if not top_losers.empty:
-            df_loss = top_losers[['Stock', 'Chg']].copy().rename(columns={'Stock': 'Emiten', 'Chg': 'Turun'})
-            st.dataframe(df_loss, column_config={"Emiten": st.column_config.TextColumn("Kode"), "Turun": st.column_config.NumberColumn("Penurunan", format="%.2f%%")}, hide_index=True, use_container_width=True)
-        else: st.write("-")
+    col_g, col_l, col_v, col_m = st.columns(4)
+    
+    # Kolom 1: Gainers
+    with col_g:
+        st.caption("🏆 Top Gainers")
+        st.dataframe(df_gain, column_config={"Stock": "Emiten", "Chg": st.column_config.NumberColumn("%", format="%.2f")}, hide_index=True, use_container_width=True)
+    
+    # Kolom 2: Losers
+    with col_l:
+        st.caption("🔻 Top Losers")
+        st.dataframe(df_loss, column_config={"Stock": "Emiten", "Chg": st.column_config.NumberColumn("%", format="%.2f")}, hide_index=True, use_container_width=True)
+        
+    # Kolom 3: Top Volume
+    with col_v:
+        st.caption("🔥 Paling Ramai (Vol)")
+        st.dataframe(df_vol, column_config={"Stock": "Emiten", "Vol": "Lot"}, hide_index=True, use_container_width=True)
+        
+    # Kolom 4: Top Value (Proxy Asing/Big Money)
+    with col_m:
+        st.caption("💰 Nilai Transaksi (Val)")
+        st.dataframe(df_val, column_config={"Stock": "Emiten", "Val": "Rp"}, hide_index=True, use_container_width=True)
+        
     st.write("") 
 
 # --- 3. UI UTAMA APLIKASI ---
