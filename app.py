@@ -39,7 +39,8 @@ IDX_TICKERS = [
     "SMGR.JK", "BRIS.JK", "BRMS.JK", "BUMI.JK", "DEWA.JK"
 ]
 
-# --- HELPER FUNCTIONS ---
+# --- 2. FUNGSI BANTUAN (HELPER) ---
+
 def load_data(file, columns):
     if os.path.exists(file): return pd.read_csv(file)
     return pd.DataFrame(columns=columns)
@@ -226,9 +227,8 @@ display_market_dashboard()
 
 tab1, tab2, tab3 = st.tabs(["🔍 SCREENER & ANALYST", "⚡ EXECUTION", "🔐 PORTFOLIO"])
 
-# --- TAB 1 (SPLIT LAYOUT) ---
+# --- TAB 1 (SPLIT LAYOUT: X-RAY + EDUKASI) ---
 with tab1:
-    # MEMBAGI LAYAR MENJADI 2 KOLOM (50:50)
     col_left, col_right = st.columns(2)
     
     # --- KOLOM KIRI: X-RAY SAHAM ---
@@ -236,9 +236,9 @@ with tab1:
         with st.container(border=True):
             st.subheader("🕵️ X-Ray Saham")
             c_in, c_btn = st.columns([2, 1])
-            with c_in: txt_in = st.text_input("Kode Saham:", placeholder="BBCA").upper()
+            with c_in: txt_in = st.text_input("Kode Saham (Cth: BBCA):", placeholder="Ketik Kode...").upper()
             with c_btn: 
-                st.write(""); st.write("") # Spacer
+                st.write(""); st.write("") 
                 btn_cek = st.button("🔍 Cek", type="primary", use_container_width=True)
             
             if btn_cek and txt_in:
@@ -248,31 +248,30 @@ with tab1:
                         cp = d_s['Close'].iloc[-1]; prev = d_s['Close'].iloc[-2]
                         chg = ((cp-prev)/prev)*100
                         ma200 = d_s['Close'].rolling(200).mean().iloc[-1]
+                        rsi = ta.rsi(d_s['Close'], length=14).iloc[-1]
                         tr = "UPTREND 🚀" if cp > ma200 else "DOWNTREND 📉"
                         
                         k1, k2 = st.columns(2)
                         k1.metric(txt_in, f"Rp {int(cp):,}", f"{chg:.2f}%")
                         k2.info(f"Trend: **{tr}**")
+                        st.markdown(f"**RSI:** {int(rsi)} | **MA200:** {int(ma200)}")
                         st.markdown(f"[➡️ Chart TradingView]({TV_CHART_ID}/?symbol=IDX:{txt_in})")
                     else: st.error("Saham tidak ditemukan.")
     
-    # --- KOLOM KANAN: KALKULATOR CUAN (FITUR BARU) ---
+    # --- KOLOM KANAN: PANDUAN EDUKASI (FITUR BARU) ---
     with col_right:
         with st.container(border=True):
-            st.subheader("🧮 Kalkulator Cuan")
-            c_buy, c_sell, c_lot = st.columns(3)
-            with c_buy: p_buy = st.number_input("Beli (Rp)", value=0, step=50)
-            with c_sell: p_sell = st.number_input("Jual (Rp)", value=0, step=50)
-            with c_lot: n_lot = st.number_input("Lot", value=1, step=1)
-            
-            if p_buy > 0 and p_sell > 0:
-                gross_profit = (p_sell - p_buy) * n_lot * 100
-                persen = ((p_sell - p_buy) / p_buy) * 100
-                color = "green" if gross_profit >= 0 else "red"
-                emoji = "🤑" if gross_profit >= 0 else "😭"
-                st.markdown(f"<h4 style='text-align:center; color:{color};'>Rp {gross_profit:,} ({persen:.2f}%) {emoji}</h4>", unsafe_allow_html=True)
-            else:
-                st.info("Masukkan harga beli & jual untuk simulasi.")
+            st.subheader("📖 Cara Baca Sinyal")
+            st.markdown("""
+            * **MA200 (Garis Tren):** * Harga > MA200 = **Aman (Uptrend)**.
+                * Harga < MA200 = **Bahaya (Downtrend)**.
+            * **RSI (Momentum):**
+                * RSI < 30 = **Murah (Diskon)**.
+                * RSI > 70 = **Mahal (Rawan Jual)**.
+            * **Pola Candle:**
+                * 🔨 **Hammer:** Sinyal pantulan naik.
+            """)
+            st.caption("💡 *Tips: Beli saat Tren Naik (di atas MA200) dan RSI sedang Murah.*")
 
     st.write("")
     st.markdown("---")
