@@ -6,7 +6,7 @@ import os
 import time
 from datetime import datetime
 
-# --- 1. SETTING IDENTITAS ---
+# --- 1. SETTING IDENTITAS & KONFIGURASI ---
 st.set_page_config(
     page_title="ADIENOV TRADING PRO",
     page_icon="🦅",
@@ -14,9 +14,11 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# KONFIGURASI PRIBADI
 SECRET_PIN = "2026" 
 TV_CHART_ID = "q94KuJTY" 
 
+# DATABASE
 DB_FILE = "trading_history.csv"
 WATCHLIST_FILE = "my_watchlist.csv"
 SYARIAH_TICKERS = ["ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "MDKA.JK", "INCO.JK", "MEDC.JK", "BRMS.JK", "DEWA.JK", "BUMI.JK", "ADRO.JK", "PTBA.JK", "MYOR.JK", "JPFA.JK"]
@@ -25,7 +27,7 @@ def load_data(file, columns):
     if os.path.exists(file): return pd.read_csv(file)
     return pd.DataFrame(columns=columns)
 
-# --- 2. ENGINE LOGIC ---
+# --- 2. ENGINE LOGIC (PEMBARUAN UTAMA) ---
 def get_hybrid_data(ticker):
     try:
         t = yf.Ticker(f"{ticker}.JK" if ".JK" not in ticker else ticker)
@@ -34,33 +36,6 @@ def get_hybrid_data(ticker):
         if len(df) < 50: return None, None
         return df, info
     except: return None, None
-
-def analyze_hybrid_logic(df, info, mode):
-    close = df['Close'].iloc[-1]
-    prev_close = df['Close'].iloc[-2]
-    prev_high = df['High'].iloc[-2]
-    
-    ma50 = df['Close'].rolling(50).mean().iloc[-1]
-    rsi = ta.rsi(df['Close'], length=14).iloc[-1]
-    vol_now = df['Volume'].iloc[-1]
-    vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
-    high_20 = df['High'].rolling(20).max().iloc[-2]
-
-    roe = info.get('returnOnEquity', 0) * 100 if info.get('returnOnEquity') else 0
-    per = info.get('trailingPE', 999) if info.get('trailingPE') else 999
-    
-    fund_status = "⚠️ Mahal"
-    if roe > 10 and per < 20: fund_status = "✅ Sehat"
-    if roe > 15 and per < 15: fund_status = "💎 Super"
-
-    if "Radar Diskon" in mode: return True, fund_status, roe, per
-    elif "Reversal" in mode:
-        if rsi < 32 and close > prev_high: return True, fund_status, roe, per
-    elif "Breakout" in mode:
-        if close > high_20 and vol_now > vol_avg: return True, fund_status, roe, per
-    elif "Swing" in mode:
-        if close > ma50 and df['Low'].iloc[-1] <= (ma50 * 1.05) and close > prev_close: return True, fund_status, roe, per
-    return False, "", 0, 0
 
 def get_technical_detail(ticker):
     try:
@@ -162,7 +137,7 @@ display_market_dashboard()
 
 tab1, tab2, tab3 = st.tabs(["🔍 STEP 1: SCREENER", "⚡ STEP 2: EXECUTION", "🔐 STEP 3: PORTFOLIO"])
 
-# --- TAB 1: SCREENER (SMART ROE NARRATIVE) ---
+# --- TAB 1: SCREENER (INTEGRASI CANDLESTICK) ---
 with tab1:
     st.header("🔍 Radar Saham")
     mode = st.radio("Pilih Strategi:", ["Radar Diskon (Market Crash)", "Reversal (Pantulan)", "Breakout (Tren Naik)", "Swing (Koreksi Sehat)"], horizontal=True)
@@ -178,62 +153,131 @@ with tab1:
             progress_bar.progress((i + 1) / len(SYARIAH_TICKERS))
             df, info = get_hybrid_data(t)
             if df is not None and info is not None:
-                lolos, f_stat, roe, per = analyze_hybrid_logic(df, info, mode)
+                # --- A. PERSIAPAN DATA ---
+                # Data Hari Ini
+                O = df['Open'].iloc[-1]
+                H = df['High'].iloc[-1]
+                L = df['Low'].iloc[-1]
+                C = df['Close'].iloc[-1]
+                # Data Kemarin
+                O_prev = df['Open'].iloc[-2]
+                C_prev = df['Close'].iloc[-2]
+                
+                # Hitung Body & Shadow untuk Candlestick
+                body = abs(C - O)
+                upper_shadow = H - max(C, O)
+                lower_shadow = min(C, O) - L
+                
+                # Indikator Lain
+                rsi_series = ta.rsi(df['Close'], length=14)
+                rsi_now = rsi_series.iloc[-1]
+                vol_now = df['Volume'].iloc[-1]
+                vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
+                
+                # --- B. DETEKSI POLA CANDLE (HAMMER & ENGULFING) ---
+                pola_candle = ""
+                is_valid_reversal = False
+                
+                # Syarat Pola: Hanya valid jika RSI di bawah 45 (Area Diskon)
+                if rsi_now < 45: 
+                    # 1. HAMMER: Ekor bawah panjang (2x body), ekor atas kecil
+                    if (lower_shadow > body * 2) and (upper_shadow < body):
+                        pola_candle = "🔨 HAMMER"
+                        is_valid_reversal = True
+                    
+                    # 2. BULLISH ENGULFING: Hijau besar menelan Merah kemarin
+                    elif (C > O) and (C_prev < O_prev) and (C > O_prev) and (O < C_prev):
+                        pola_candle = "🔥 ENGULFING"
+                        is_valid_reversal = True
+                
+                # --- C. FILTER LOGIC UTAMA ---
+                lolos = False
+                
+                # Cek Fundamental Dasar
+                roe = info.get('returnOnEquity', 0) * 100 if info.get('returnOnEquity') else 0
+                per = info.get('trailingPE', 999) if info.get('trailingPE') else 999
+                
+                # Tentukan Status Fundamental
+                f_stat = "⚠️ Mahal"
+                if roe > 10 and per < 20: f_stat = "✅ Sehat"
+                if roe > 15 and per < 15: f_stat = "💎 Super"
+
+                # Logika Seleksi Berdasarkan Mode
+                if "Radar Diskon" in mode: 
+                    lolos = True # Tampilkan semua untuk diurutkan
+                elif "Reversal" in mode:
+                    # JIKA ADA POLA CANDLE, LANGSUNG LOLOS (Prioritas Tinggi)
+                    if is_valid_reversal: 
+                        lolos = True
+                    # Jika tidak ada pola, pakai syarat lama (RSI Murah + Rebound Dikit)
+                    elif rsi_now < 32 and C > df['High'].iloc[-2]: 
+                        lolos = True
+                        pola_candle = "↗️ REBOUND" 
+                elif "Breakout" in mode:
+                     high_20 = df['High'].rolling(20).max().iloc[-2]
+                     if C > high_20 and vol_now > vol_avg: lolos = True
+                elif "Swing" in mode:
+                    ma50 = df['Close'].rolling(50).mean().iloc[-1]
+                    if C > ma50 and L <= (ma50 * 1.05) and C > C_prev: lolos = True
+
                 if lolos:
-                    close = df['Close'].iloc[-1]
-                    prev_close = df['Close'].iloc[-2]
-                    chg_pct = ((close - prev_close) / prev_close) * 100
+                    # --- D. PENYUSUNAN NARASI (BAHASA MANUSIA) ---
                     
-                    # 1. NARASI VOLUME
-                    vol_now = df['Volume'].iloc[-1]
-                    vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
+                    # Narasi Volume
                     vol_ratio = vol_now / vol_avg
+                    if vol_ratio < 0.6: v_txt = "😴 Sepi"
+                    elif vol_ratio < 1.3: v_txt = "😐 Normal"
+                    elif vol_ratio < 3.0: v_txt = "⚡ Ramai"
+                    else: v_txt = "🔥 MELEDAK"
+                    vol_display = f"{v_txt} ({vol_ratio:.1f}x)"
                     
-                    if vol_ratio < 0.6: vol_stat = "😴 Sepi"
-                    elif vol_ratio < 1.3: vol_stat = "😐 Normal"
-                    elif vol_ratio < 3.0: vol_stat = "⚡ Ramai"
-                    else: vol_stat = "🔥 MELEDAK"
-                    vol_display = f"{vol_stat} ({vol_ratio:.1f}x)"
+                    # Narasi RSI
+                    if rsi_now < 30: rsi_txt = "🔥 DISKON"
+                    elif rsi_now < 45: rsi_txt = "✅ MURAH"
+                    else: rsi_txt = "😐 NORMAL"
+                    rsi_display = f"{int(rsi_now)} ({rsi_txt})"
                     
-                    # 2. NARASI RSI
-                    rsi_series = ta.rsi(df['Close'], length=14)
-                    rsi_now = rsi_series.iloc[-1]
-                    rsi_prev = rsi_series.iloc[-2]
-                    
-                    if rsi_now < 30: rsi_text = "🔥 DISKON"
-                    elif rsi_now < 45: rsi_text = "✅ MURAH"
-                    elif rsi_now < 60: rsi_text = "😐 NORMAL"
-                    else: rsi_text = "⚠️ MAHAL"
-                    arah = "↘️" if rsi_now < rsi_prev else "↗️"
-                    kondisi_rsi = f"{int(rsi_now)} ({rsi_text}) {arah}"
-                    
-                    # 3. NARASI ROE (BARU!)
-                    if roe > 15: roe_text = "🚀 ISTIMEWA"
-                    elif roe > 10: roe_text = "✅ BAGUS"
-                    elif roe > 5: roe_text = "😐 BIASA"
-                    else: roe_text = "⚠️ KURANG"
-                    roe_display = f"{roe:.1f}% ({roe_text})"
-                    
+                    # Narasi ROE
+                    if roe > 15: roe_txt = "🚀 ISTIMEWA"
+                    elif roe > 10: roe_txt = "✅ BAGUS"
+                    else: roe_txt = "⚠️ KURANG"
+                    roe_display = f"{roe:.1f}%"
+
+                    # KOLOM SINYAL: Prioritaskan Pola Candle di Mode Reversal
+                    signal_final = f_stat
+                    if "Reversal" in mode and pola_candle != "":
+                        signal_final = f"{pola_candle}" 
+                    elif "Breakout" in mode:
+                        signal_final = "🚀 BREAKOUT"
+                    elif "Swing" in mode:
+                        signal_final = "🔄 SWING"
+
                     tv_link = f"https://www.tradingview.com/chart/{TV_CHART_ID}/?symbol=IDX:{t.replace('.JK','')}"
                     
                     results.append({
                         "Pilih": False, 
                         "Stock": t.replace(".JK",""), 
-                        "Price": int(close),
-                        "Chg%": chg_pct,
-                        "Vol Info": vol_display, 
-                        "Kualitas": f_stat, 
-                        "ROE Info": roe_display, # Kolom Baru
-                        "RSI Info": kondisi_rsi, 
+                        "Price": int(C),
+                        "Chg%": ((C - C_prev)/C_prev)*100,
+                        "Vol": vol_display,
+                        "Signal": signal_final, # Kolom Sinyal Cerdas
+                        "ROE": roe_display,
+                        "RSI": rsi_display,
                         "Chart": tv_link
                     })
         progress_bar.empty()
         
         if results:
             df_res = pd.DataFrame(results)
-            if "Radar" in mode: df_res = df_res.sort_values(by="ROE Info", ascending=False) # Sort by string might be imperfect but okay for grouping
+            # Sorting Cerdas
+            if "Reversal" in mode: 
+                # Urutkan agar Hammer/Engulfing ada di paling atas (Ascending string: Hammer/Engulfing < Rebound)
+                df_res = df_res.sort_values(by="Signal", ascending=True) 
+            elif "Radar" in mode:
+                df_res = df_res.sort_values(by="ROE", ascending=False)
+            
             st.session_state['scan_results'] = df_res
-        else: st.warning("Tidak ada saham yang sesuai kriteria saat ini.")
+        else: st.warning("Tidak ada saham yang sesuai kriteria.")
 
     if st.session_state['scan_results'] is not None:
         edited_df = st.data_editor(
@@ -243,10 +287,10 @@ with tab1:
                 "Stock": st.column_config.TextColumn("Kode", width=60),
                 "Price": st.column_config.NumberColumn("Harga", format="Rp %d", width=80),
                 "Chg%": st.column_config.NumberColumn("Chg%", format="%.2f%%", width=70),
-                "Vol Info": st.column_config.TextColumn("Aktivitas Volume", width=130),
-                "Kualitas": st.column_config.TextColumn("Fund.", width=90),
-                "ROE Info": st.column_config.TextColumn("Kualitas Laba (ROE)", width=130), # Kolom Baru
-                "RSI Info": st.column_config.TextColumn("Momentum (RSI)", width=200),
+                "Vol": st.column_config.TextColumn("Volume", width=120),
+                "Signal": st.column_config.TextColumn("SINYAL", width=130), # Kolom Utama
+                "ROE": st.column_config.TextColumn("ROE", width=70),
+                "RSI": st.column_config.TextColumn("RSI", width=110),
                 "Chart": st.column_config.LinkColumn("View", display_text="📈 Chart", width=70)
             }, 
             hide_index=True, 
@@ -266,7 +310,7 @@ with tab1:
                 else: st.warning("⚠️ Saham sudah ada di Watchlist.")
             else: st.warning("⚠️ Belum ada saham yang dicentang.")
 
-# --- TAB 2: WATCHLIST ---
+# --- TAB 2 & 3 (TETAP SAMA SEPERTI SEBELUMNYA) ---
 with tab2:
     col_h1, col_h2 = st.columns([3, 1])
     with col_h1:
@@ -318,7 +362,6 @@ with tab2:
                         st.warning(f"🔔 **PENGINGAT EKSEKUSI:** Silakan buka aplikasi Sekuritas Anda dan lakukan Order Buy untuk **{d['Stock']}** secara real.")
                         st.stop() 
 
-# --- TAB 3: PORTFOLIO ---
 with tab3:
     st.header("🔐 Portfolio Administrator")
     if 'porto_unlocked' not in st.session_state: st.session_state['porto_unlocked'] = False
