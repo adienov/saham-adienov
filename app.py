@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components # Modul baru untuk Widget Chart
 import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
@@ -18,7 +19,6 @@ st.set_page_config(
 # ⚙️ KONFIGURASI PENTING
 # ==========================================
 SECRET_PIN = "2026" 
-TV_CHART_ID = "q94KuJTY" 
 # 👇 MASUKKAN LINK GRUP WA DI BAWAH INI 👇
 LINK_WA = "https://chat.whatsapp.com/GANTILINKDISINI" 
 # ==========================================
@@ -69,8 +69,7 @@ def get_technical_detail(ticker):
         else:
             trend = "⚠️ Data Terbatas"
 
-        tv_url = f"https://www.tradingview.com/chart/{TV_CHART_ID}/?symbol=IDX:{ticker.replace('.JK','')}"
-        return {"Stock": ticker.replace(".JK",""), "Price": close, "Trend": trend, "RSI": rsi, "MA200": ma200, "TV": tv_url}
+        return {"Stock": ticker.replace(".JK",""), "Price": close, "Trend": trend, "RSI": rsi, "MA200": ma200}
     except: return None
 
 def get_porto_analysis(ticker, entry_price):
@@ -95,6 +94,40 @@ def format_large_number(num):
     if num >= 1_000_000_000: return f"{num/1_000_000_000:.1f}M"
     if num >= 1_000_000: return f"{num/1_000_000:.1f}jt"
     return str(int(num))
+
+# --- GENERATOR CHART TRADINGVIEW PROFESIONAL ---
+def render_tv_widget(symbol):
+    # Kode HTML/JS untuk Widget TradingView
+    html_code = f"""
+    <div class="tradingview-widget-container">
+      <div id="tradingview_chart"></div>
+      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+      <script type="text/javascript">
+      new TradingView.widget(
+      {{
+        "width": "100%",
+        "height": 400,
+        "symbol": "IDX:{symbol}",
+        "interval": "D",
+        "timezone": "Asia/Jakarta",
+        "theme": "light",
+        "style": "1",
+        "locale": "id",
+        "toolbar_bg": "#f1f3f6",
+        "enable_publishing": false,
+        "allow_symbol_change": true,
+        "container_id": "tradingview_chart",
+        "studies": [
+          "MASimple@tv-basicstudies",
+          "RSI@tv-basicstudies"
+        ],
+        "hide_side_toolbar": false
+      }}
+      );
+      </script>
+    </div>
+    """
+    components.html(html_code, height=410)
 
 # --- HTML TABLE GENERATOR ---
 def render_html_table(df, title, bg_color, text_color, val_col):
@@ -173,7 +206,7 @@ def display_market_dashboard():
     with c1: st.markdown("### 📊 MARKET DASHBOARD")
     with c2: st.markdown(f"<div style='text-align:right; color:gray; font-size:12px;'>📅 {get_indo_date()}<br>⚠️ Data Delayed ~15 Min</div>", unsafe_allow_html=True)
 
-    # ROW 1: METRICS (GIANT SIZE)
+    # ROW 1: METRICS
     k1, k2, k3, k4 = st.columns(4)
     col_ihsg = "#d32f2f" if ihsg_chg < 0 else "#388e3c"
     with k1: st.markdown(f"<div style='text-align:center; background:#e3f2fd; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🇮🇩 IHSG</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{ihsg_now:,.0f}</span><br><span style='color:{col_ihsg}; font-size:16px; font-weight:bold;'>{ihsg_chg:+.2f}%</span></div>", unsafe_allow_html=True)
@@ -224,7 +257,7 @@ with tab1:
     # --- KOLOM KIRI: X-RAY SAHAM ---
     with col_left:
         with st.container(border=True):
-            st.subheader("🕵️ X-Ray Saham")
+            st.subheader("🕵️ X-Ray Saham (Professional Chart)")
             c_in, c_btn = st.columns([2, 1])
             with c_in: txt_in = st.text_input("Kode Saham (Cth: BBCA):", placeholder="Ketik Kode...").upper()
             with c_btn: 
@@ -232,20 +265,23 @@ with tab1:
                 btn_cek = st.button("🔍 Cek", type="primary", use_container_width=True)
             
             if btn_cek and txt_in:
-                with st.spinner("Analyzing..."):
-                    d_s = get_technical_detail(txt_in)
-                    if d_s is not None:
-                        cp = d_s['Price']
-                        # Safe conversion
-                        rsi_disp = str(int(d_s['RSI'])) if pd.notna(d_s['RSI']) else "N/A"
-                        ma200_disp = str(int(d_s['MA200'])) if pd.notna(d_s['MA200']) and d_s['MA200'] > 0 else "-"
-                        
-                        k1, k2 = st.columns(2)
-                        k1.metric(txt_in, f"Rp {int(cp):,}")
-                        k2.info(f"**{d_s['Trend']}**")
-                        st.markdown(f"**RSI:** {rsi_disp} | **MA200:** {ma200_disp}")
-                        st.markdown(f"[➡️ Chart TradingView]({d_s['TV']})")
-                    else: st.error("Saham tidak ditemukan / Data tidak tersedia.")
+                # 1. Tampilkan Data Singkat
+                d_s = get_technical_detail(txt_in)
+                if d_s is not None:
+                    cp = d_s['Price']
+                    rsi_disp = str(int(d_s['RSI'])) if pd.notna(d_s['RSI']) else "N/A"
+                    ma200_disp = str(int(d_s['MA200'])) if pd.notna(d_s['MA200']) and d_s['MA200'] > 0 else "-"
+                    
+                    k1, k2 = st.columns(2)
+                    k1.metric(txt_in, f"Rp {int(cp):,}")
+                    k2.info(f"**{d_s['Trend']}**")
+                    st.write(f"RSI: {rsi_disp} | MA200: {ma200_disp}")
+                    
+                    # 2. TAMPILKAN WIDGET CHART (Fitur Baru)
+                    st.write("---")
+                    render_tv_widget(txt_in)
+                    
+                else: st.error("Saham tidak ditemukan / Data tidak tersedia.")
     
     # --- KOLOM KANAN: PANDUAN EDUKASI ---
     with col_right:
@@ -322,18 +358,14 @@ with tab1:
                 
                 if ok:
                     chg = ((C-C1)/C1)*100
-                    tv = f"https://www.tradingview.com/chart/{TV_CHART_ID}/?symbol=IDX:{t.replace('.JK','')}"
-                    
-                    # APPEND DATA DENGAN KETERANGAN TEKS
                     res.append({
                         "Pilih": False, 
                         "Stock": t.replace(".JK",""), 
                         "Price": int(C), 
                         "Chg%": chg,
-                        "Vol": v_txt,   # Kolom Deskriptif
-                        "RSI": r_txt,   # Kolom Deskriptif
-                        "ROE": roe_txt, # Kolom Deskriptif
-                        "Chart": tv
+                        "Vol": v_txt,
+                        "RSI": r_txt,
+                        "ROE": roe_txt
                     })
                     
         bar.empty()
@@ -341,11 +373,9 @@ with tab1:
         else: st.warning("Tidak ada saham sesuai kriteria.")
 
     if st.session_state.get('scan') is not None:
-        # Konfigurasi agar kolom Chart bisa diklik, sisanya teks biasa
         edf = st.data_editor(
             st.session_state['scan'], 
             column_config={
-                "Chart": st.column_config.LinkColumn("View", display_text="📈"),
                 "Chg%": st.column_config.NumberColumn("Chg%", format="%.2f%%")
             }, 
             hide_index=True, 
