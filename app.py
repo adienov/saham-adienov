@@ -21,7 +21,7 @@ SECRET_PIN = "2026"
 TV_CHART_ID = "q94KuJTY" 
 
 # 👇 MASUKKAN LINK GRUP WA DI BAWAH INI 👇
-LINK_WA = "https://chat.whatsapp.com/IwsFmoVxlNPHy6Sc1vaAqd?mode=gi_t" 
+LINK_WA = "https://chat.whatsapp.com/GANTILINKDISINI" 
 # ==========================================
 
 # DATABASE FILES
@@ -103,24 +103,39 @@ def get_indo_date():
     now = datetime.now()
     days = {"Monday": "Senin", "Tuesday": "Selasa", "Wednesday": "Rabu", "Thursday": "Kamis", "Friday": "Jumat", "Saturday": "Sabtu", "Sunday": "Minggu"}
     months = {"January": "Januari", "February": "Februari", "March": "Maret", "April": "April", "May": "Mei", "June": "Juni", "July": "Juli", "August": "Agustus", "September": "September", "October": "Oktober", "November": "November", "December": "Desember"}
-    
     day_name = days[now.strftime("%A")]
     month_name = months[now.strftime("%B")]
-    day_num = now.strftime("%d")
-    year = now.strftime("%Y")
-    return f"{day_name}, {day_num} {month_name} {year}"
+    return f"{day_name}, {now.strftime('%d')} {month_name} {now.strftime('%Y')}"
 
 # --- OPTIMASI SPEED: CACHING ---
 @st.cache_data(ttl=300)
 def fetch_dashboard_data():
     try:
-        ihsg = yf.Ticker("^JKSE").history(period="2d")
+        # 1. Market Data
+        ihsg = yf.Ticker("^JKSE").history(period="1y") # Perlu 1y untuk outlook MA200
         usd = yf.Ticker("IDR=X").history(period="1d")
         
+        # 2. Commodities Data (Emas, Minyak, Tembaga)
+        gold = yf.Ticker("GC=F").history(period="1d")
+        oil = yf.Ticker("CL=F").history(period="1d")
+        copper = yf.Ticker("HG=F").history(period="1d")
+
         ihsg_now = ihsg['Close'].iloc[-1]
         ihsg_chg = ((ihsg_now - ihsg['Close'].iloc[-2]) / ihsg['Close'].iloc[-2]) * 100
         usd_now = usd['Close'].iloc[-1]
         
+        # Data Outlook
+        ma200_ihsg = ihsg['Close'].rolling(200).mean().iloc[-1]
+        rsi_ihsg = ta.rsi(ihsg['Close'], length=14).iloc[-1]
+        
+        # Data Komoditas
+        commo_data = {
+            "Gold": {"Price": gold['Close'].iloc[-1], "Chg": ((gold['Close'].iloc[-1] - gold['Open'].iloc[-1])/gold['Open'].iloc[-1])*100},
+            "Oil": {"Price": oil['Close'].iloc[-1], "Chg": ((oil['Close'].iloc[-1] - oil['Open'].iloc[-1])/oil['Open'].iloc[-1])*100},
+            "Copper": {"Price": copper['Close'].iloc[-1], "Chg": ((copper['Close'].iloc[-1] - copper['Open'].iloc[-1])/copper['Open'].iloc[-1])*100}
+        }
+        
+        # 3. Top Movers
         movers = []
         for t in IDX_TICKERS:
             try:
@@ -130,16 +145,88 @@ def fetch_dashboard_data():
                     chg = ((hist['Close'].iloc[-1] - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100
                     movers.append({"Stock": t.replace(".JK",""), "Chg": chg})
             except: pass
-        return ihsg_now, ihsg_chg, usd_now, movers
-    except: return None, None, None, []
+            
+        return ihsg_now, ihsg_chg, usd_now, ma200_ihsg, rsi_ihsg, commo_data, movers
+    except: return None, None, None, None, None, None, []
+
+# --- LOGIC TEXT OUTLOOK PROFESIONAL ---
+def generate_outlook_text(price, ma200, rsi):
+    trend_txt = ""
+    action_txt = ""
+    
+    # 1. Analisa Trend (Price vs MA200)
+    if price > ma200:
+        trend_txt = "Secara teknikal jangka panjang, IHSG berada dalam fase **BULLISH (Tren Naik)**."
+        if rsi > 70: action_txt = "Namun indikator momentum menunjukkan area jenuh beli. **Waspada potensi aksi ambil untung (Profit Taking)** dalam jangka pendek."
+        elif rsi > 50: action_txt = "Momentum pasar cukup stabil. Sentimen pembelian masih terjaga dengan baik."
+        else: action_txt = "Terjadi koreksi wajar dalam tren naik. Bisa dimanfaatkan untuk **Akumulasi Bertahap (Buy on Weakness)**."
+    else:
+        trend_txt = "Secara teknikal, IHSG masih bergerak di bawah resisten kuat (MA200) atau fase **KONSOLIDASI/BEARISH**."
+        if rsi < 30: action_txt = "Indikator momentum menunjukkan area jenuh jual (Oversold). Potensi terjadinya **Pantulan Teknis (Rebound)** cukup besar."
+        else: action_txt = "Disarankan untuk lebih **Defensif/Wait and See** hingga terbentuk konfirmasi pola pembalikan arah."
+        
+    return f"{trend_txt} {action_txt}"
 
 # --- FUNGSI TAMPILAN DASHBOARD ---
 def display_market_dashboard():
-    ihsg_now, ihsg_chg, usd_now, movers = fetch_dashboard_data()
+    ihsg_now, ihsg_chg, usd_now, ma200, rsi, commo, movers = fetch_dashboard_data()
+    
     if ihsg_now is None:
         st.error("Gagal memuat data pasar. Cek koneksi internet.")
         return
 
+    # Header & Tanggal
+    c_title, c_date = st.columns([2, 1])
+    with c_title: st.markdown("### 📊 MARKET OVERVIEW")
+    with c_date:
+        st.markdown(f"<p style='text-align: right; color: gray; margin-bottom: 0px;'>📅 {get_indo_date()}</p>", unsafe_allow_html=True)
+        st.markdown(f"<p style='text-align: right; color: #f57c00; font-size: 12px; margin-top: 0px;'>⚠️ Data Delayed ~15 Min (Yahoo Finance)</p>", unsafe_allow_html=True)
+    
+    # --- ROW 1: IHSG, USD, OUTLOOK ---
+    c_idx, c_usd, c_out = st.columns([1, 1, 2])
+    
+    color_ihsg = "#d32f2f" if ihsg_chg < 0 else "#388e3c"
+    with c_idx:
+        st.markdown(f"""
+        <div style="text-align: center; background-color: #e3f2fd; padding: 15px; border-radius: 10px; border: 1px solid #bbdefb; height: 100%;">
+            <p style="margin:0; font-size:12px; color:#555; font-weight:bold;">IHSG (COMPOSITE)</p>
+            <h3 style="margin:5px 0; color: #000;">{ihsg_now:,.0f}</h3>
+            <p style="margin:0; color: {color_ihsg}; font-weight:bold; font-size: 14px;">{ihsg_chg:+.2f}%</p>
+        </div>""", unsafe_allow_html=True)
+        
+    with c_usd:
+        st.markdown(f"""
+        <div style="text-align: center; background-color: #f1f8e9; padding: 15px; border-radius: 10px; border: 1px solid #c5e1a5; height: 100%;">
+            <p style="margin:0; font-size:12px; color:#555; font-weight:bold;">USD/IDR</p>
+            <h3 style="margin:5px 0; color: #000;">Rp {usd_now:,.0f}</h3>
+            <p style="margin:0; color: #555; font-size: 14px;">Currency Rate</p>
+        </div>""", unsafe_allow_html=True)
+        
+    with c_out:
+        outlook_msg = generate_outlook_text(ihsg_now, ma200, rsi)
+        st.markdown(f"""
+        <div style="background-color: #fff3e0; padding: 15px; border-radius: 10px; border: 1px solid #ffe0b2; height: 100%; display: flex; align-items: center;">
+            <div>
+                <p style="margin:0; font-size:12px; color:#e65100; font-weight:bold;">📢 IHSG MARKET OUTLOOK</p>
+                <p style="margin:5px 0; font-size: 14px; line-height: 1.4; color: #333;">{outlook_msg}</p>
+            </div>
+        </div>""", unsafe_allow_html=True)
+    
+    st.write("")
+
+    # --- ROW 2: KOMODITAS DUNIA ---
+    st.caption("🌍 KOMODITAS GLOBAL (FUTURES)")
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("🥇 Gold (Emas)", f"${commo['Gold']['Price']:,.0f}", f"{commo['Gold']['Chg']:.2f}%")
+    k2.metric("🛢️ Crude Oil (WTI)", f"${commo['Oil']['Price']:,.2f}", f"{commo['Oil']['Chg']:.2f}%")
+    k3.metric("🥉 Copper (Tembaga)", f"${commo['Copper']['Price']:,.2f}", f"{commo['Copper']['Chg']:.2f}%")
+    # Slot 4 Kosong atau bisa diisi Silver jika mau, untuk sekarang spacer saja atau Silver
+    # Saya masukkan Silver (XAG) dummy logic atau biarkan kosong agar rapi
+    k4.info("Data komoditas indikator inflasi & manufaktur.")
+
+    st.write("")
+    
+    # --- ROW 3: GAINERS & LOSERS ---
     df_movers = pd.DataFrame(movers)
     if not df_movers.empty:
         df_movers = df_movers.sort_values(by="Chg", ascending=False)
@@ -148,30 +235,6 @@ def display_market_dashboard():
     else:
         top_gainers, top_losers = pd.DataFrame(), pd.DataFrame()
 
-    c_title, c_date = st.columns([2, 1])
-    with c_title: st.markdown("### 📊 MARKET OVERVIEW")
-    with c_date:
-        st.markdown(f"<p style='text-align: right; color: gray; margin-bottom: 0px;'>📅 {get_indo_date()}</p>", unsafe_allow_html=True)
-        st.markdown(f"<p style='text-align: right; color: #f57c00; font-size: 12px; margin-top: 0px;'>⚠️ Data Delayed ~15 Min (Yahoo Finance)</p>", unsafe_allow_html=True)
-    
-    col_ihsg, col_usd = st.columns(2)
-    color_ihsg = "#d32f2f" if ihsg_chg < 0 else "#388e3c"
-    
-    with col_ihsg:
-        st.markdown(f"""
-        <div style="text-align: center; background-color: #e3f2fd; padding: 15px; border-radius: 10px; border: 1px solid #bbdefb; margin-bottom: 10px;">
-            <p style="margin:0; font-size:14px; color:#555; font-weight:bold;">🇮🇩 IHSG (COMPOSITE)</p>
-            <h2 style="margin:5px 0; color: #000; font-size: 32px;">{ihsg_now:,.2f}</h2>
-            <p style="margin:0; color: {color_ihsg}; font-weight:bold; font-size: 16px;">{ihsg_chg:+.2f}%</p>
-        </div>""", unsafe_allow_html=True)
-    with col_usd:
-        st.markdown(f"""
-        <div style="text-align: center; background-color: #f1f8e9; padding: 15px; border-radius: 10px; border: 1px solid #c5e1a5; margin-bottom: 10px;">
-            <p style="margin:0; font-size:14px; color:#555; font-weight:bold;">🇺🇸 USD/IDR</p>
-            <h2 style="margin:5px 0; color: #000; font-size: 32px;">Rp {usd_now:,.0f}</h2>
-            <p style="margin:0; color: #555; font-size: 16px;">Currency Rate</p>
-        </div>""", unsafe_allow_html=True)
-    
     c1, c2 = st.columns(2)
     with c1:
         st.success("🏆 TOP GAINERS (Kenaikan Tertinggi)")
@@ -189,18 +252,14 @@ def display_market_dashboard():
 
 # --- 3. UI UTAMA APLIKASI ---
 
-# SIDEBAR (MENU SAMPING DENGAN LINK WA)
 with st.sidebar:
     st.header("🏫 School Of Trader")
     st.info("Komunitas belajar trading & investasi cerdas untuk tenaga pendidik.")
     st.write("Bergabunglah untuk diskusi harian:")
-    
-    # TOMBOL WA (MENGAMBIL LINK DARI CONFIG DI ATAS)
     if LINK_WA != "https://chat.whatsapp.com/GANTILINKDISINI":
         st.link_button("💬 Gabung Grup WhatsApp", LINK_WA, type="primary", use_container_width=True)
     else:
         st.warning("⚠️ Link WA belum di-setting di script.")
-    
     st.divider()
     st.caption("NOVA QUANTUM ANALYTICS")
     st.caption("© 2026 Adien Novarisa")
@@ -214,7 +273,6 @@ tab1, tab2, tab3 = st.tabs(["🔍 SCREENER & ANALYST", "⚡ EXECUTION", "🔐 PO
 
 # --- TAB 1: SCREENER ---
 with tab1:
-    # FITUR 1: SINGLE STOCK ANALYZER
     st.header("🕵️ X-Ray Saham (Analisa Spesifik)")
     with st.container(border=True):
         col_in1, col_in2 = st.columns([3, 1])
@@ -257,7 +315,6 @@ with tab1:
 
     st.markdown("---")
 
-    # FITUR 2: MARKET SCANNER
     st.header("📡 Radar Market (Scanner)")
     with st.expander("ℹ️ Daftar Saham (Universe)"):
         list_saham = ", ".join([s.replace(".JK", "") for s in IDX_TICKERS])
