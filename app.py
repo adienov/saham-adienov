@@ -25,7 +25,7 @@ WATCHLIST_FILE = "my_watchlist.csv"
 # DAFTAR SAHAM (UNIVERSE)
 SYARIAH_TICKERS = ["ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "MDKA.JK", "INCO.JK", "MEDC.JK", "BRMS.JK", "DEWA.JK", "BUMI.JK", "ADRO.JK", "PTBA.JK", "MYOR.JK", "JPFA.JK"]
 
-# --- 2. FUNGSI BANTUAN (HELPER) ---
+# --- 2. FUNGSI BANTUAN (HELPER) & CACHING ---
 
 def load_data(file, columns):
     if os.path.exists(file): return pd.read_csv(file)
@@ -84,9 +84,11 @@ def get_porto_analysis(ticker, entry_price):
         return last_p, f"{gl_val:+.2f}%", action
     except: return 0, "0%", "-"
 
-# --- FUNGSI TAMPILAN DASHBOARD ---
-def display_market_dashboard():
+# --- OPTIMASI SPEED: CACHING DASHBOARD DATA (5 MENIT) ---
+@st.cache_data(ttl=300) # Data disimpan di memori selama 300 detik (5 menit)
+def fetch_dashboard_data():
     try:
+        # 1. Ambil Data Market
         ihsg = yf.Ticker("^JKSE").history(period="2d")
         usd = yf.Ticker("IDR=X").history(period="1d")
         
@@ -94,6 +96,7 @@ def display_market_dashboard():
         ihsg_chg = ((ihsg_now - ihsg['Close'].iloc[-2]) / ihsg['Close'].iloc[-2]) * 100
         usd_now = usd['Close'].iloc[-1]
         
+        # 2. Scan Top Gainers/Losers
         movers = []
         for t in SYARIAH_TICKERS:
             try:
@@ -104,56 +107,69 @@ def display_market_dashboard():
                     movers.append({"Stock": t.replace(".JK",""), "Chg": chg})
             except: pass
         
-        df_movers = pd.DataFrame(movers)
-        if not df_movers.empty:
-            df_movers = df_movers.sort_values(by="Chg", ascending=False)
-            top_gainers = df_movers.head(3) 
-            top_losers = df_movers.tail(3).sort_values(by="Chg", ascending=True) 
-        else:
-            top_gainers, top_losers = pd.DataFrame(), pd.DataFrame()
+        return ihsg_now, ihsg_chg, usd_now, movers
+    except:
+        return None, None, None, []
 
-        st.markdown("### 📊 MARKET OVERVIEW")
-        
-        with st.container(border=True):
-            k1, k2 = st.columns(2)
-            k1.metric("🇮🇩 IHSG (Composite)", f"{ihsg_now:,.2f}", f"{ihsg_chg:.2f}%")
-            k2.metric("🇺🇸 USD/IDR", f"Rp {usd_now:,.0f}", "")
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            st.success("🏆 TOP GAINERS (Juara Hari Ini)")
-            if not top_gainers.empty:
-                df_gain = top_gainers[['Stock', 'Chg']].copy()
-                df_gain = df_gain.rename(columns={'Stock': 'Emiten', 'Chg': 'Naik'})
-                st.dataframe(
-                    df_gain,
-                    column_config={
-                        "Emiten": st.column_config.TextColumn("Kode"),
-                        "Naik": st.column_config.NumberColumn("Kenaikan", format="+%.2f%%")
-                    },
-                    hide_index=True,
-                    use_container_width=True
-                )
-            else: st.write("-")
-            
-        with c2:
-            st.error("🔻 TOP LOSERS (Pecundang Hari Ini)")
-            if not top_losers.empty:
-                df_loss = top_losers[['Stock', 'Chg']].copy()
-                df_loss = df_loss.rename(columns={'Stock': 'Emiten', 'Chg': 'Turun'})
-                st.dataframe(
-                    df_loss,
-                    column_config={
-                        "Emiten": st.column_config.TextColumn("Kode"),
-                        "Turun": st.column_config.NumberColumn("Penurunan", format="%.2f%%")
-                    },
-                    hide_index=True,
-                    use_container_width=True
-                )
-            else: st.write("-")
-        st.write("") 
-    except: 
+# --- FUNGSI TAMPILAN DASHBOARD ---
+def display_market_dashboard():
+    # Panggil Data dari Cache (Cepat!)
+    ihsg_now, ihsg_chg, usd_now, movers = fetch_dashboard_data()
+    
+    if ihsg_now is None:
         st.error("Gagal memuat data pasar. Cek koneksi internet.")
+        return
+
+    df_movers = pd.DataFrame(movers)
+    if not df_movers.empty:
+        df_movers = df_movers.sort_values(by="Chg", ascending=False)
+        top_gainers = df_movers.head(3) 
+        top_losers = df_movers.tail(3).sort_values(by="Chg", ascending=True) 
+    else:
+        top_gainers, top_losers = pd.DataFrame(), pd.DataFrame()
+
+    st.markdown("### 📊 MARKET OVERVIEW")
+    
+    with st.container(border=True):
+        k1, k2 = st.columns(2)
+        k1.metric("🇮🇩 IHSG (Composite)", f"{ihsg_now:,.2f}", f"{ihsg_chg:.2f}%")
+        k2.metric("🇺🇸 USD/IDR", f"Rp {usd_now:,.0f}", "")
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        # DIKSI BARU: Kenaikan Tertinggi
+        st.success("🏆 TOP GAINERS (Kenaikan Tertinggi)")
+        if not top_gainers.empty:
+            df_gain = top_gainers[['Stock', 'Chg']].copy()
+            df_gain = df_gain.rename(columns={'Stock': 'Emiten', 'Chg': 'Naik'})
+            st.dataframe(
+                df_gain,
+                column_config={
+                    "Emiten": st.column_config.TextColumn("Kode"),
+                    "Naik": st.column_config.NumberColumn("Kenaikan", format="+%.2f%%")
+                },
+                hide_index=True,
+                use_container_width=True
+            )
+        else: st.write("-")
+        
+    with c2:
+        # DIKSI BARU: Koreksi Terdalam
+        st.error("🔻 TOP LOSERS (Koreksi Terdalam)")
+        if not top_losers.empty:
+            df_loss = top_losers[['Stock', 'Chg']].copy()
+            df_loss = df_loss.rename(columns={'Stock': 'Emiten', 'Chg': 'Turun'})
+            st.dataframe(
+                df_loss,
+                column_config={
+                    "Emiten": st.column_config.TextColumn("Kode"),
+                    "Turun": st.column_config.NumberColumn("Penurunan", format="%.2f%%")
+                },
+                hide_index=True,
+                use_container_width=True
+            )
+        else: st.write("-")
+    st.write("") 
 
 # --- 3. UI UTAMA APLIKASI ---
 
@@ -163,20 +179,20 @@ st.caption("Professional Trading System by Adien Novarisa")
 # Tampilkan Dashboard
 display_market_dashboard()
 
-# --- DEFINISI TAB (INI WAJIB ADA SEBELUM WITH TAB1) ---
+# --- DEFINISI TAB ---
 tab1, tab2, tab3 = st.tabs(["🔍 STEP 1: SCREENER", "⚡ STEP 2: EXECUTION", "🔐 STEP 3: PORTFOLIO"])
 
-# --- TAB 1: SCREENER (AUTO-CLEAR + LOGIC LENGKAP) ---
+# --- TAB 1: SCREENER ---
 with tab1:
     st.header("🔍 Radar Saham")
     
-    # Simpan mode sebelumnya untuk Auto-Clear
+    # Simpan mode sebelumnya
     if 'last_mode' not in st.session_state:
         st.session_state['last_mode'] = "Radar Diskon (Market Crash)"
         
     mode = st.radio("Pilih Strategi:", ["Radar Diskon (Market Crash)", "Reversal (Pantulan)", "Breakout (Tren Naik)", "Swing (Koreksi Sehat)"], horizontal=True)
     
-    # AUTO-CLEAR LOGIC: Hapus hasil scan jika mode berubah
+    # AUTO-CLEAR LOGIC
     if mode != st.session_state['last_mode']:
         st.session_state['scan_results'] = None 
         st.session_state['last_mode'] = mode    
