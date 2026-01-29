@@ -6,7 +6,7 @@ import os
 import time
 from datetime import datetime
 
-# --- 1. SETTING IDENTITAS & CHART ---
+# --- 1. SETTING IDENTITAS ---
 st.set_page_config(
     page_title="ADIENOV TRADING PRO",
     page_icon="🦅",
@@ -14,11 +14,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# PIN SECURITY
 SECRET_PIN = "2026" 
-
-# ID CHART TRADINGVIEW BAPAK (Dari Screenshot)
-# Ini kuncinya agar indikator Noris/Minervini otomatis muncul
 TV_CHART_ID = "q94KuJTY" 
 
 DB_FILE = "trading_history.csv"
@@ -42,6 +38,8 @@ def get_hybrid_data(ticker):
 def analyze_hybrid_logic(df, info, mode):
     close = df['Close'].iloc[-1]
     prev_close = df['Close'].iloc[-2]
+    prev_high = df['High'].iloc[-2] # Logic V157
+    
     ma50 = df['Close'].rolling(50).mean().iloc[-1]
     rsi = ta.rsi(df['Close'], length=14).iloc[-1]
     vol_now = df['Volume'].iloc[-1]
@@ -57,7 +55,8 @@ def analyze_hybrid_logic(df, info, mode):
 
     if "Radar Diskon" in mode: return True, fund_status, roe, per
     elif "Reversal" in mode:
-        if rsi < 40 and close > prev_close: return True, fund_status, roe, per
+        # Logic V157: RSI < 32 & Close > High Kemarin
+        if rsi < 32 and close > prev_high: return True, fund_status, roe, per
     elif "Breakout" in mode:
         if close > high_20 and vol_now > vol_avg: return True, fund_status, roe, per
     elif "Swing" in mode:
@@ -89,8 +88,6 @@ def get_technical_detail(ticker):
 
         support = int(df['Low'].tail(20).min())
         resistance = int(df['High'].tail(20).max())
-
-        # URL TRADINGVIEW KHUSUS (DENGAN ID CHART)
         tv_url = f"https://www.tradingview.com/chart/{TV_CHART_ID}/?symbol=IDX:{ticker.replace('.JK','')}"
 
         return {
@@ -126,7 +123,7 @@ except: pass
 
 tab1, tab2, tab3 = st.tabs(["🔍 STEP 1: SCREENER", "⚡ STEP 2: EXECUTION", "🔐 STEP 3: PORTFOLIO"])
 
-# --- TAB 1: SCREENER ---
+# --- TAB 1: SCREENER (BAHASA MANUSIA) ---
 with tab1:
     st.header("🔍 Radar Saham")
     mode = st.radio("Pilih Strategi:", ["Radar Diskon (Market Crash)", "Reversal (Pantulan)", "Breakout (Tren Naik)", "Swing (Koreksi Sehat)"], horizontal=True)
@@ -144,12 +141,41 @@ with tab1:
             if df is not None and info is not None:
                 lolos, f_stat, roe, per = analyze_hybrid_logic(df, info, mode)
                 if lolos:
+                    # AMBIL DATA RSI & CLOSE TERKINI
                     close = df['Close'].iloc[-1]
-                    rsi = ta.rsi(df['Close'], length=14).iloc[-1]
-                    # URL TV dengan ID Chart
+                    rsi_series = ta.rsi(df['Close'], length=14)
+                    rsi_now = rsi_series.iloc[-1]
+                    rsi_prev = rsi_series.iloc[-2] # RSI Kemarin (Untuk perbandingan)
+                    
+                    # LOGIKA BAHASA MANUSIA (TRANSLATOR)
+                    # 1. Tentukan Status Murah/Mahal
+                    if rsi_now < 30: rsi_text = "🔥 DISKON PARAH"
+                    elif rsi_now < 45: rsi_text = "✅ SUDAH MURAH"
+                    elif rsi_now < 60: rsi_text = "😐 NORMAL"
+                    else: rsi_text = "⚠️ MULAI MAHAL"
+                    
+                    # 2. Tentukan Arah (Makin Murah vs Mulai Naik)
+                    if rsi_now < rsi_prev:
+                        arah = "↘️ Makin Murah"
+                    else:
+                        arah = "↗️ Mulai Naik"
+                    
+                    # Gabungkan jadi satu kalimat
+                    kondisi_rsi = f"{int(rsi_now)} ({rsi_text}) | {arah}"
+                    
+                    # URL TV
                     tv_link = f"https://www.tradingview.com/chart/{TV_CHART_ID}/?symbol=IDX:{t.replace('.JK','')}"
                     
-                    results.append({"Pilih": False, "Stock": t.replace(".JK",""), "Price": int(close), "Kualitas": f_stat, "ROE (%)": round(roe, 1), "Chart": tv_link})
+                    # Masukkan ke Tabel Hasil (Ganti kolom RSI angka dengan Kondisi Bahasa)
+                    results.append({
+                        "Pilih": False, 
+                        "Stock": t.replace(".JK",""), 
+                        "Price": int(close), 
+                        "Kualitas": f_stat, 
+                        "ROE (%)": round(roe, 1), 
+                        "Kondisi Harga (RSI)": kondisi_rsi, # Kolom Baru
+                        "Chart": tv_link
+                    })
         progress_bar.empty()
         
         if results:
@@ -159,7 +185,19 @@ with tab1:
         else: st.warning("Tidak ada saham yang sesuai kriteria saat ini.")
 
     if st.session_state['scan_results'] is not None:
-        edited_df = st.data_editor(st.session_state['scan_results'], column_config={"Pilih": st.column_config.CheckboxColumn("Pantau"), "Chart": st.column_config.LinkColumn("Grafik"), "Kualitas": st.column_config.TextColumn("Fundamental"), "ROE (%)": st.column_config.NumberColumn("ROE", format="%.1f%%")}, hide_index=True, use_container_width=True)
+        # TAMPILKAN TABEL DENGAN KOLOM BAHASA MANUSIA
+        edited_df = st.data_editor(
+            st.session_state['scan_results'], 
+            column_config={
+                "Pilih": st.column_config.CheckboxColumn("Pantau"),
+                "Chart": st.column_config.LinkColumn("Grafik"),
+                "Kualitas": st.column_config.TextColumn("Fundamental"),
+                "ROE (%)": st.column_config.NumberColumn("ROE", format="%.1f%%"),
+                "Kondisi Harga (RSI)": st.column_config.TextColumn("Status Diskon?", width="medium", help="Membaca indikator RSI dengan bahasa sehari-hari")
+            }, 
+            hide_index=True, 
+            use_container_width=True
+        )
         
         if st.button("💾 MASUKKAN KE WATCHLIST"):
             selected = edited_df[edited_df["Pilih"] == True]["Stock"].tolist()
@@ -174,7 +212,10 @@ with tab1:
                 else: st.warning("⚠️ Semua saham yang dipilih SUDAH ADA di Watchlist Anda sebelumnya.")
             else: st.warning("⚠️ Belum ada saham yang dicentang.")
 
-# --- TAB 2: WATCHLIST ---
+# --- TAB 2 & 3 (TETAP SAMA DENGAN V154) ---
+# (Bagian Tab 2 dan Tab 3 tidak saya tulis ulang agar tidak kepanjangan, 
+# karena kodenya sama persis dengan V154. Cukup copy bagian Tab 1 di atas 
+# dan gabungkan dengan Tab 2 & 3 dari kode sebelumnya).
 with tab2:
     col_h1, col_h2 = st.columns([3, 1])
     with col_h1:
@@ -233,7 +274,6 @@ with tab2:
                         """)
                         st.stop() 
 
-# --- TAB 3: PORTFOLIO (PIN PROTECTED) ---
 with tab3:
     st.header("🔐 Portfolio Administrator")
     
