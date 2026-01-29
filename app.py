@@ -38,7 +38,7 @@ def get_hybrid_data(ticker):
 def analyze_hybrid_logic(df, info, mode):
     close = df['Close'].iloc[-1]
     prev_close = df['Close'].iloc[-2]
-    prev_high = df['High'].iloc[-2] # Logic V157
+    prev_high = df['High'].iloc[-2]
     
     ma50 = df['Close'].rolling(50).mean().iloc[-1]
     rsi = ta.rsi(df['Close'], length=14).iloc[-1]
@@ -55,7 +55,6 @@ def analyze_hybrid_logic(df, info, mode):
 
     if "Radar Diskon" in mode: return True, fund_status, roe, per
     elif "Reversal" in mode:
-        # Logic V157: RSI < 32 & Close > High Kemarin
         if rsi < 32 and close > prev_high: return True, fund_status, roe, per
     elif "Breakout" in mode:
         if close > high_20 and vol_now > vol_avg: return True, fund_status, roe, per
@@ -107,23 +106,78 @@ def get_porto_analysis(ticker, entry_price):
         return last_p, f"{gl_val:+.2f}%", action
     except: return 0, "0%", "-"
 
-# --- 3. UI DASHBOARD ---
+# --- FUNGSI BARU: MARKET DASHBOARD ---
+def display_market_dashboard():
+    # 1. Ambil Data IHSG & USD
+    try:
+        ihsg = yf.Ticker("^JKSE").history(period="2d")
+        usd = yf.Ticker("IDR=X").history(period="1d")
+        
+        ihsg_now = ihsg['Close'].iloc[-1]
+        ihsg_chg = ((ihsg_now - ihsg['Close'].iloc[-2]) / ihsg['Close'].iloc[-2]) * 100
+        usd_now = usd['Close'].iloc[-1]
+        
+        # 2. Scan Cepat Top Gainers/Losers dari Universe Bapak
+        movers = []
+        for t in SYARIAH_TICKERS:
+            try:
+                tk = yf.Ticker(f"{t}.JK" if ".JK" not in t else t)
+                hist = tk.history(period="2d")
+                if len(hist) >= 2:
+                    chg = ((hist['Close'].iloc[-1] - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100
+                    movers.append({"Stock": t.replace(".JK",""), "Chg": chg})
+            except: pass
+        
+        # Sortir
+        df_movers = pd.DataFrame(movers)
+        if not df_movers.empty:
+            df_movers = df_movers.sort_values(by="Chg", ascending=False)
+            top_gainers = df_movers.head(3)
+            top_losers = df_movers.tail(3).sort_values(by="Chg", ascending=True)
+        else:
+            top_gainers, top_losers = pd.DataFrame(), pd.DataFrame()
+
+        # --- TAMPILAN DASHBOARD ---
+        st.markdown("### 📊 MARKET OVERVIEW")
+        
+        # Baris 1: IHSG & USD
+        k1, k2, k3 = st.columns([2, 1, 1])
+        k1.metric("IHSG (Composite)", f"{ihsg_now:,.2f}", f"{ihsg_chg:.2f}%")
+        k2.metric("USD/IDR", f"Rp {usd_now:,.0f}", "")
+        
+        # Baris 2: Leaders & Laggards (Ala Mirae)
+        c1, c2 = st.columns(2)
+        
+        with c1:
+            st.success("🏆 LEADERS (Top Gainers)")
+            if not top_gainers.empty:
+                for _, row in top_gainers.iterrows():
+                    st.write(f"**{row['Stock']}** : +{row['Chg']:.2f}%")
+            else: st.write("-")
+            
+        with c2:
+            st.error("🔻 LAGGARDS (Top Losers)")
+            if not top_losers.empty:
+                for _, row in top_losers.iterrows():
+                    st.write(f"**{row['Stock']}** : {row['Chg']:.2f}%")
+            else: st.write("-")
+            
+        st.markdown("---")
+            
+    except: 
+        st.error("Gagal memuat data pasar. Cek koneksi internet.")
+
+# --- 3. UI UTAMA ---
 
 st.title("📈 ADIENOV TRADING PRO")
 st.caption("Professional Trading System by Adien Novarisa")
-st.markdown("---")
 
-try:
-    ihsg = yf.Ticker("^JKSE").history(period="2d")
-    chg = ((ihsg['Close'].iloc[-1] - ihsg['Close'].iloc[-2]) / ihsg['Close'].iloc[-2]) * 100
-    if chg <= -3.0: st.error(f"🚨 ALERT: CRASH ({chg:.2f}%) - Fokus Reversal & Diskon.")
-    elif chg <= -1.0: st.warning(f"⚠️ ALERT: KOREKSI ({chg:.2f}%) - Kurangi agresivitas.")
-    else: st.success(f"🟢 MARKET: AMAN ({chg:.2f}%) - Strategi Normal.")
-except: pass
+# --- PANGGIL DASHBOARD DI SINI ---
+display_market_dashboard()
 
 tab1, tab2, tab3 = st.tabs(["🔍 STEP 1: SCREENER", "⚡ STEP 2: EXECUTION", "🔐 STEP 3: PORTFOLIO"])
 
-# --- TAB 1: SCREENER (BAHASA MANUSIA) ---
+# --- TAB 1: SCREENER ---
 with tab1:
     st.header("🔍 Radar Saham")
     mode = st.radio("Pilih Strategi:", ["Radar Diskon (Market Crash)", "Reversal (Pantulan)", "Breakout (Tren Naik)", "Swing (Koreksi Sehat)"], horizontal=True)
@@ -141,41 +195,21 @@ with tab1:
             if df is not None and info is not None:
                 lolos, f_stat, roe, per = analyze_hybrid_logic(df, info, mode)
                 if lolos:
-                    # AMBIL DATA RSI & CLOSE TERKINI
                     close = df['Close'].iloc[-1]
                     rsi_series = ta.rsi(df['Close'], length=14)
                     rsi_now = rsi_series.iloc[-1]
-                    rsi_prev = rsi_series.iloc[-2] # RSI Kemarin (Untuk perbandingan)
+                    rsi_prev = rsi_series.iloc[-2]
                     
-                    # LOGIKA BAHASA MANUSIA (TRANSLATOR)
-                    # 1. Tentukan Status Murah/Mahal
                     if rsi_now < 30: rsi_text = "🔥 DISKON PARAH"
                     elif rsi_now < 45: rsi_text = "✅ SUDAH MURAH"
                     elif rsi_now < 60: rsi_text = "😐 NORMAL"
                     else: rsi_text = "⚠️ MULAI MAHAL"
                     
-                    # 2. Tentukan Arah (Makin Murah vs Mulai Naik)
-                    if rsi_now < rsi_prev:
-                        arah = "↘️ Makin Murah"
-                    else:
-                        arah = "↗️ Mulai Naik"
-                    
-                    # Gabungkan jadi satu kalimat
+                    arah = "↘️ Makin Murah" if rsi_now < rsi_prev else "↗️ Mulai Naik"
                     kondisi_rsi = f"{int(rsi_now)} ({rsi_text}) | {arah}"
-                    
-                    # URL TV
                     tv_link = f"https://www.tradingview.com/chart/{TV_CHART_ID}/?symbol=IDX:{t.replace('.JK','')}"
                     
-                    # Masukkan ke Tabel Hasil (Ganti kolom RSI angka dengan Kondisi Bahasa)
-                    results.append({
-                        "Pilih": False, 
-                        "Stock": t.replace(".JK",""), 
-                        "Price": int(close), 
-                        "Kualitas": f_stat, 
-                        "ROE (%)": round(roe, 1), 
-                        "Kondisi Harga (RSI)": kondisi_rsi, # Kolom Baru
-                        "Chart": tv_link
-                    })
+                    results.append({"Pilih": False, "Stock": t.replace(".JK",""), "Price": int(close), "Kualitas": f_stat, "ROE (%)": round(roe, 1), "Kondisi Harga (RSI)": kondisi_rsi, "Chart": tv_link})
         progress_bar.empty()
         
         if results:
@@ -185,19 +219,7 @@ with tab1:
         else: st.warning("Tidak ada saham yang sesuai kriteria saat ini.")
 
     if st.session_state['scan_results'] is not None:
-        # TAMPILKAN TABEL DENGAN KOLOM BAHASA MANUSIA
-        edited_df = st.data_editor(
-            st.session_state['scan_results'], 
-            column_config={
-                "Pilih": st.column_config.CheckboxColumn("Pantau"),
-                "Chart": st.column_config.LinkColumn("Grafik"),
-                "Kualitas": st.column_config.TextColumn("Fundamental"),
-                "ROE (%)": st.column_config.NumberColumn("ROE", format="%.1f%%"),
-                "Kondisi Harga (RSI)": st.column_config.TextColumn("Status Diskon?", width="medium", help="Membaca indikator RSI dengan bahasa sehari-hari")
-            }, 
-            hide_index=True, 
-            use_container_width=True
-        )
+        edited_df = st.data_editor(st.session_state['scan_results'], column_config={"Pilih": st.column_config.CheckboxColumn("Pantau"), "Chart": st.column_config.LinkColumn("Grafik"), "Kualitas": st.column_config.TextColumn("Fundamental"), "ROE (%)": st.column_config.NumberColumn("ROE", format="%.1f%%"), "Kondisi Harga (RSI)": st.column_config.TextColumn("Status Diskon?", width="medium")}, hide_index=True, use_container_width=True)
         
         if st.button("💾 MASUKKAN KE WATCHLIST"):
             selected = edited_df[edited_df["Pilih"] == True]["Stock"].tolist()
@@ -206,16 +228,13 @@ with tab1:
                 new = [s for s in selected if s not in wl["Stock"].values]
                 if new: 
                     pd.concat([wl, pd.DataFrame([{"Stock": s} for s in new])], ignore_index=True).to_csv(WATCHLIST_FILE, index=False)
-                    st.success(f"✅ Berhasil! {len(new)} saham ({', '.join(new)}) telah ditambahkan ke Watchlist.")
+                    st.success(f"✅ Berhasil! {len(new)} saham ditambahkan.")
                     time.sleep(1.5) 
                     st.rerun()
-                else: st.warning("⚠️ Semua saham yang dipilih SUDAH ADA di Watchlist Anda sebelumnya.")
+                else: st.warning("⚠️ Saham sudah ada di Watchlist.")
             else: st.warning("⚠️ Belum ada saham yang dicentang.")
 
-# --- TAB 2 & 3 (TETAP SAMA DENGAN V154) ---
-# (Bagian Tab 2 dan Tab 3 tidak saya tulis ulang agar tidak kepanjangan, 
-# karena kodenya sama persis dengan V154. Cukup copy bagian Tab 1 di atas 
-# dan gabungkan dengan Tab 2 & 3 dari kode sebelumnya).
+# --- TAB 2: WATCHLIST ---
 with tab2:
     col_h1, col_h2 = st.columns([3, 1])
     with col_h1:
@@ -265,22 +284,15 @@ with tab2:
                         wl = wl[wl.Stock != d['Stock']]; wl.to_csv(WATCHLIST_FILE, index=False)
                         
                         st.success(f"✅ **DATA TERSIMPAN.** {d['Stock']} berhasil dicatat ke Portfolio Admin.")
-                        st.warning(f"""
-                        🔔 **PENGINGAT EKSEKUSI:**
-                        Aplikasi ini hanya alat bantu analisa & pencatatan.
-                        
-                        👉 **LANGKAH SELANJUTNYA:**
-                        Silakan buka aplikasi Sekuritas Anda (IPOT/Stockbit/Ajaib) dan lakukan Order Buy untuk **{d['Stock']}** secara real.
-                        """)
+                        st.warning(f"🔔 **PENGINGAT EKSEKUSI:** Silakan buka aplikasi Sekuritas Anda dan lakukan Order Buy untuk **{d['Stock']}** secara real.")
                         st.stop() 
 
+# --- TAB 3: PORTFOLIO ---
 with tab3:
     st.header("🔐 Portfolio Administrator")
-    
     if 'porto_unlocked' not in st.session_state: st.session_state['porto_unlocked'] = False
-
     if not st.session_state['porto_unlocked']:
-        st.warning("🔒 Halaman ini terkunci. Hanya Admin (Pak Adien) yang bisa mengakses.")
+        st.warning("🔒 Halaman ini terkunci.")
         with st.form("login_form"):
             user_pin = st.text_input("Masukkan PIN Keamanan:", type="password")
             if st.form_submit_button("BUKA AKSES"):
@@ -292,7 +304,6 @@ with tab3:
         with col_p1: st.success("✅ Akses Administrator Terbuka")
         with col_p2:
             if st.button("🔒 KUNCI KEMBALI"): st.session_state['porto_unlocked'] = False; st.rerun()
-        
         if st.button("🚨 RESET TOTAL PORTFOLIO", type="primary"):
             if os.path.exists(DB_FILE): os.remove(DB_FILE); st.rerun()
         
