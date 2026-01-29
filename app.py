@@ -18,16 +18,19 @@ st.set_page_config(
 SECRET_PIN = "2026" 
 TV_CHART_ID = "q94KuJTY" 
 
-# DATABASE
+# DATABASE FILES
 DB_FILE = "trading_history.csv"
 WATCHLIST_FILE = "my_watchlist.csv"
+
+# DAFTAR SAHAM (UNIVERSE)
 SYARIAH_TICKERS = ["ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "MDKA.JK", "INCO.JK", "MEDC.JK", "BRMS.JK", "DEWA.JK", "BUMI.JK", "ADRO.JK", "PTBA.JK", "MYOR.JK", "JPFA.JK"]
+
+# --- 2. FUNGSI BANTUAN (HELPER) ---
 
 def load_data(file, columns):
     if os.path.exists(file): return pd.read_csv(file)
     return pd.DataFrame(columns=columns)
 
-# --- 2. ENGINE LOGIC (PEMBARUAN UTAMA) ---
 def get_hybrid_data(ticker):
     try:
         t = yf.Ticker(f"{ticker}.JK" if ".JK" not in ticker else ticker)
@@ -81,14 +84,18 @@ def get_porto_analysis(ticker, entry_price):
         return last_p, f"{gl_val:+.2f}%", action
     except: return 0, "0%", "-"
 
+# --- FUNGSI TAMPILAN DASHBOARD (V168) ---
 def display_market_dashboard():
     try:
+        # 1. Ambil Data Market
         ihsg = yf.Ticker("^JKSE").history(period="2d")
         usd = yf.Ticker("IDR=X").history(period="1d")
+        
         ihsg_now = ihsg['Close'].iloc[-1]
         ihsg_chg = ((ihsg_now - ihsg['Close'].iloc[-2]) / ihsg['Close'].iloc[-2]) * 100
         usd_now = usd['Close'].iloc[-1]
         
+        # 2. Scan Top Gainers/Losers
         movers = []
         for t in SYARIAH_TICKERS:
             try:
@@ -102,42 +109,73 @@ def display_market_dashboard():
         df_movers = pd.DataFrame(movers)
         if not df_movers.empty:
             df_movers = df_movers.sort_values(by="Chg", ascending=False)
-            top_gainers = df_movers.head(3)
-            top_losers = df_movers.tail(3).sort_values(by="Chg", ascending=True)
+            top_gainers = df_movers.head(3) # Top 3 Juara
+            top_losers = df_movers.tail(3).sort_values(by="Chg", ascending=True) # Top 3 Pecundang
         else:
             top_gainers, top_losers = pd.DataFrame(), pd.DataFrame()
 
+        # --- 3. TAMPILAN VISUAL ---
         st.markdown("### 📊 MARKET OVERVIEW")
-        k1, k2, k3 = st.columns([2, 1, 1])
-        k1.metric("IHSG (Composite)", f"{ihsg_now:,.2f}", f"{ihsg_chg:.2f}%")
-        k2.metric("USD/IDR", f"Rp {usd_now:,.0f}", "")
         
+        # BAGIAN ATAS: KOTAK INDEKS (DENGAN GARIS TEPI/BORDER)
+        with st.container(border=True):
+            k1, k2 = st.columns(2)
+            k1.metric("🇮🇩 IHSG (Composite)", f"{ihsg_now:,.2f}", f"{ihsg_chg:.2f}%")
+            k2.metric("🇺🇸 USD/IDR", f"Rp {usd_now:,.0f}", "")
+        
+        # BAGIAN BAWAH: TABEL JUARA & PECUNDANG
         c1, c2 = st.columns(2)
+        
+        # Kolom Kiri: Winners
         with c1:
-            st.success("🏆 LEADERS (Top Gainers)")
+            st.success("🏆 TOP GAINERS (Juara Hari Ini)")
             if not top_gainers.empty:
-                for _, row in top_gainers.iterrows():
-                    st.write(f"**{row['Stock']}** : +{row['Chg']:.2f}%")
+                df_gain = top_gainers[['Stock', 'Chg']].copy()
+                df_gain = df_gain.rename(columns={'Stock': 'Emiten', 'Chg': 'Naik'})
+                st.dataframe(
+                    df_gain,
+                    column_config={
+                        "Emiten": st.column_config.TextColumn("Kode"),
+                        "Naik": st.column_config.NumberColumn("Kenaikan", format="+%.2f%%")
+                    },
+                    hide_index=True,
+                    use_container_width=True
+                )
             else: st.write("-")
+            
+        # Kolom Kanan: Losers
         with c2:
-            st.error("🔻 LAGGARDS (Top Losers)")
+            st.error("🔻 TOP LOSERS (Pecundang Hari Ini)")
             if not top_losers.empty:
-                for _, row in top_losers.iterrows():
-                    st.write(f"**{row['Stock']}** : {row['Chg']:.2f}%")
+                df_loss = top_losers[['Stock', 'Chg']].copy()
+                df_loss = df_loss.rename(columns={'Stock': 'Emiten', 'Chg': 'Turun'})
+                st.dataframe(
+                    df_loss,
+                    column_config={
+                        "Emiten": st.column_config.TextColumn("Kode"),
+                        "Turun": st.column_config.NumberColumn("Penurunan", format="%.2f%%")
+                    },
+                    hide_index=True,
+                    use_container_width=True
+                )
             else: st.write("-")
-        st.markdown("---")
-    except: st.error("Gagal memuat data pasar.")
+            
+        st.write("") # Spasi
+    except: 
+        st.error("Gagal memuat data pasar. Cek koneksi internet.")
 
-# --- 3. UI UTAMA ---
+# --- 3. UI UTAMA APLIKASI ---
 
 st.title("📈 ADIENOV TRADING PRO")
 st.caption("Professional Trading System by Adien Novarisa")
 
+# Tampilkan Dashboard di Halaman Depan
 display_market_dashboard()
 
+# Tab Menu
 tab1, tab2, tab3 = st.tabs(["🔍 STEP 1: SCREENER", "⚡ STEP 2: EXECUTION", "🔐 STEP 3: PORTFOLIO"])
 
-# --- TAB 1: SCREENER (INTEGRASI CANDLESTICK) ---
+# --- TAB 1: SCREENER (LOGIC V167 + VISUAL V168) ---
 with tab1:
     st.header("🔍 Radar Saham")
     mode = st.radio("Pilih Strategi:", ["Radar Diskon (Market Crash)", "Reversal (Pantulan)", "Breakout (Tren Naik)", "Swing (Koreksi Sehat)"], horizontal=True)
@@ -271,7 +309,7 @@ with tab1:
             df_res = pd.DataFrame(results)
             # Sorting Cerdas
             if "Reversal" in mode: 
-                # Urutkan agar Hammer/Engulfing ada di paling atas (Ascending string: Hammer/Engulfing < Rebound)
+                # Urutkan agar Hammer/Engulfing ada di paling atas
                 df_res = df_res.sort_values(by="Signal", ascending=True) 
             elif "Radar" in mode:
                 df_res = df_res.sort_values(by="ROE", ascending=False)
@@ -288,7 +326,7 @@ with tab1:
                 "Price": st.column_config.NumberColumn("Harga", format="Rp %d", width=80),
                 "Chg%": st.column_config.NumberColumn("Chg%", format="%.2f%%", width=70),
                 "Vol": st.column_config.TextColumn("Volume", width=120),
-                "Signal": st.column_config.TextColumn("SINYAL", width=130), # Kolom Utama
+                "Signal": st.column_config.TextColumn("SINYAL", width=130),
                 "ROE": st.column_config.TextColumn("ROE", width=70),
                 "RSI": st.column_config.TextColumn("RSI", width=110),
                 "Chart": st.column_config.LinkColumn("View", display_text="📈 Chart", width=70)
@@ -310,7 +348,7 @@ with tab1:
                 else: st.warning("⚠️ Saham sudah ada di Watchlist.")
             else: st.warning("⚠️ Belum ada saham yang dicentang.")
 
-# --- TAB 2 & 3 (TETAP SAMA SEPERTI SEBELUMNYA) ---
+# --- TAB 2: WATCHLIST (EXECUTION) ---
 with tab2:
     col_h1, col_h2 = st.columns([3, 1])
     with col_h1:
@@ -362,6 +400,7 @@ with tab2:
                         st.warning(f"🔔 **PENGINGAT EKSEKUSI:** Silakan buka aplikasi Sekuritas Anda dan lakukan Order Buy untuk **{d['Stock']}** secara real.")
                         st.stop() 
 
+# --- TAB 3: PORTFOLIO (SECURE) ---
 with tab3:
     st.header("🔐 Portfolio Administrator")
     if 'porto_unlocked' not in st.session_state: st.session_state['porto_unlocked'] = False
