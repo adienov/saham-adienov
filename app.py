@@ -136,17 +136,19 @@ def display_market_dashboard():
     else:
         top_gainers, top_losers = pd.DataFrame(), pd.DataFrame()
 
-    # HEADER DASHBOARD
+    # HEADER DASHBOARD DENGAN TANGGAL & DISCLAIMER
     c_title, c_date = st.columns([2, 1])
     with c_title:
         st.markdown("### 📊 MARKET OVERVIEW")
     with c_date:
-        st.markdown(f"<p style='text-align: right; color: gray;'>📅 {get_indo_date()}</p>", unsafe_allow_html=True)
+        # Tanggal
+        st.markdown(f"<p style='text-align: right; color: gray; margin-bottom: 0px;'>📅 {get_indo_date()}</p>", unsafe_allow_html=True)
+        # Disclaimer Delay (Warna Oranye)
+        st.markdown(f"<p style='text-align: right; color: #f57c00; font-size: 12px; margin-top: 0px;'>⚠️ Data Delayed ~15 Min (Yahoo Finance)</p>", unsafe_allow_html=True)
     
     # --- KARTU IHSG & USD (CENTERED & COLORED) ---
     col_ihsg, col_usd = st.columns(2)
     
-    # Warna Angka IHSG (Merah jika turun, Hijau jika naik)
     color_ihsg = "#d32f2f" if ihsg_chg < 0 else "#388e3c"
     
     with col_ihsg:
