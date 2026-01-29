@@ -111,14 +111,13 @@ def get_indo_date():
 @st.cache_data(ttl=300)
 def fetch_dashboard_data():
     try:
-        # 1. Market Data
-        ihsg = yf.Ticker("^JKSE").history(period="1y") # Perlu 1y untuk outlook MA200
+        # 1. Market Data (AMBIL 2 TAHUN AGAR MA200 AMAN)
+        ihsg = yf.Ticker("^JKSE").history(period="2y") 
         usd = yf.Ticker("IDR=X").history(period="1d")
         
-        # 2. Commodities Data (Emas, Minyak, Tembaga)
+        # 2. Commodities Data
         gold = yf.Ticker("GC=F").history(period="1d")
         oil = yf.Ticker("CL=F").history(period="1d")
-        copper = yf.Ticker("HG=F").history(period="1d")
 
         ihsg_now = ihsg['Close'].iloc[-1]
         ihsg_chg = ((ihsg_now - ihsg['Close'].iloc[-2]) / ihsg['Close'].iloc[-2]) * 100
@@ -131,8 +130,7 @@ def fetch_dashboard_data():
         # Data Komoditas
         commo_data = {
             "Gold": {"Price": gold['Close'].iloc[-1], "Chg": ((gold['Close'].iloc[-1] - gold['Open'].iloc[-1])/gold['Open'].iloc[-1])*100},
-            "Oil": {"Price": oil['Close'].iloc[-1], "Chg": ((oil['Close'].iloc[-1] - oil['Open'].iloc[-1])/oil['Open'].iloc[-1])*100},
-            "Copper": {"Price": copper['Close'].iloc[-1], "Chg": ((copper['Close'].iloc[-1] - copper['Open'].iloc[-1])/copper['Open'].iloc[-1])*100}
+            "Oil": {"Price": oil['Close'].iloc[-1], "Chg": ((oil['Close'].iloc[-1] - oil['Open'].iloc[-1])/oil['Open'].iloc[-1])*100}
         }
         
         # 3. Top Movers
@@ -151,6 +149,9 @@ def fetch_dashboard_data():
 
 # --- LOGIC TEXT OUTLOOK PROFESIONAL ---
 def generate_outlook_text(price, ma200, rsi):
+    if pd.isna(price) or pd.isna(ma200) or pd.isna(rsi):
+        return "Data teknikal IHSG sedang dimuat ulang..."
+        
     trend_txt = ""
     action_txt = ""
     
@@ -175,54 +176,55 @@ def display_market_dashboard():
         st.error("Gagal memuat data pasar. Cek koneksi internet.")
         return
 
-    # Header & Tanggal
+    # HEADER & TANGGAL
     c_title, c_date = st.columns([2, 1])
-    with c_title: st.markdown("### 📊 MARKET OVERVIEW")
+    with c_title: st.markdown("### 📊 MARKET DASHBOARD")
     with c_date:
         st.markdown(f"<p style='text-align: right; color: gray; margin-bottom: 0px;'>📅 {get_indo_date()}</p>", unsafe_allow_html=True)
         st.markdown(f"<p style='text-align: right; color: #f57c00; font-size: 12px; margin-top: 0px;'>⚠️ Data Delayed ~15 Min (Yahoo Finance)</p>", unsafe_allow_html=True)
     
-    # --- ROW 1: IHSG, USD, OUTLOOK ---
-    c_idx, c_usd, c_out = st.columns([1, 1, 2])
+    # --- ROW 1: METRICS UTAMA (IHSG, USD, GOLD, OIL) ---
+    c_idx, c_usd, c_gold, c_oil = st.columns(4)
     
     color_ihsg = "#d32f2f" if ihsg_chg < 0 else "#388e3c"
+    
     with c_idx:
         st.markdown(f"""
-        <div style="text-align: center; background-color: #e3f2fd; padding: 15px; border-radius: 10px; border: 1px solid #bbdefb; height: 100%;">
-            <p style="margin:0; font-size:12px; color:#555; font-weight:bold;">IHSG (COMPOSITE)</p>
-            <h3 style="margin:5px 0; color: #000;">{ihsg_now:,.0f}</h3>
-            <p style="margin:0; color: {color_ihsg}; font-weight:bold; font-size: 14px;">{ihsg_chg:+.2f}%</p>
+        <div style="text-align: center; background-color: #e3f2fd; padding: 10px; border-radius: 8px; border: 1px solid #bbdefb;">
+            <p style="margin:0; font-size:11px; color:#555; font-weight:bold;">🇮🇩 IHSG</p>
+            <h4 style="margin:2px 0; color: #000;">{ihsg_now:,.0f}</h4>
+            <p style="margin:0; color: {color_ihsg}; font-weight:bold; font-size: 13px;">{ihsg_chg:+.2f}%</p>
         </div>""", unsafe_allow_html=True)
         
     with c_usd:
         st.markdown(f"""
-        <div style="text-align: center; background-color: #f1f8e9; padding: 15px; border-radius: 10px; border: 1px solid #c5e1a5; height: 100%;">
-            <p style="margin:0; font-size:12px; color:#555; font-weight:bold;">USD/IDR</p>
-            <h3 style="margin:5px 0; color: #000;">Rp {usd_now:,.0f}</h3>
-            <p style="margin:0; color: #555; font-size: 14px;">Currency Rate</p>
-        </div>""", unsafe_allow_html=True)
-        
-    with c_out:
-        outlook_msg = generate_outlook_text(ihsg_now, ma200, rsi)
-        st.markdown(f"""
-        <div style="background-color: #fff3e0; padding: 15px; border-radius: 10px; border: 1px solid #ffe0b2; height: 100%; display: flex; align-items: center;">
-            <div>
-                <p style="margin:0; font-size:12px; color:#e65100; font-weight:bold;">📢 IHSG MARKET OUTLOOK</p>
-                <p style="margin:5px 0; font-size: 14px; line-height: 1.4; color: #333;">{outlook_msg}</p>
-            </div>
+        <div style="text-align: center; background-color: #f1f8e9; padding: 10px; border-radius: 8px; border: 1px solid #c5e1a5;">
+            <p style="margin:0; font-size:11px; color:#555; font-weight:bold;">🇺🇸 USD/IDR</p>
+            <h4 style="margin:2px 0; color: #000;">Rp {usd_now:,.0f}</h4>
+            <p style="margin:0; color: #555; font-size: 13px;">Rate</p>
         </div>""", unsafe_allow_html=True)
     
-    st.write("")
+    with c_gold:
+        st.markdown(f"""
+        <div style="text-align: center; background-color: #fff8e1; padding: 10px; border-radius: 8px; border: 1px solid #ffecb3;">
+            <p style="margin:0; font-size:11px; color:#555; font-weight:bold;">🥇 GOLD</p>
+            <h4 style="margin:2px 0; color: #000;">${commo['Gold']['Price']:,.0f}</h4>
+            <p style="margin:0; color: #555; font-size: 13px;">{commo['Gold']['Chg']:.2f}%</p>
+        </div>""", unsafe_allow_html=True)
+        
+    with c_oil:
+        st.markdown(f"""
+        <div style="text-align: center; background-color: #eceff1; padding: 10px; border-radius: 8px; border: 1px solid #cfd8dc;">
+            <p style="margin:0; font-size:11px; color:#555; font-weight:bold;">🛢️ OIL (WTI)</p>
+            <h4 style="margin:2px 0; color: #000;">${commo['Oil']['Price']:,.1f}</h4>
+            <p style="margin:0; color: #555; font-size: 13px;">{commo['Oil']['Chg']:.2f}%</p>
+        </div>""", unsafe_allow_html=True)
 
-    # --- ROW 2: KOMODITAS DUNIA ---
-    st.caption("🌍 KOMODITAS GLOBAL (FUTURES)")
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("🥇 Gold (Emas)", f"${commo['Gold']['Price']:,.0f}", f"{commo['Gold']['Chg']:.2f}%")
-    k2.metric("🛢️ Crude Oil (WTI)", f"${commo['Oil']['Price']:,.2f}", f"{commo['Oil']['Chg']:.2f}%")
-    k3.metric("🥉 Copper (Tembaga)", f"${commo['Copper']['Price']:,.2f}", f"{commo['Copper']['Chg']:.2f}%")
-    # Slot 4 Kosong atau bisa diisi Silver jika mau, untuk sekarang spacer saja atau Silver
-    # Saya masukkan Silver (XAG) dummy logic atau biarkan kosong agar rapi
-    k4.info("Data komoditas indikator inflasi & manufaktur.")
+    st.write("")
+    
+    # --- ROW 2: MARKET OUTLOOK (FULL WIDTH) ---
+    outlook_msg = generate_outlook_text(ihsg_now, ma200, rsi)
+    st.info(f"📢 **MARKET OUTLOOK (IHSG):**\n\n{outlook_msg}")
 
     st.write("")
     
@@ -259,7 +261,7 @@ with st.sidebar:
     if LINK_WA != "https://chat.whatsapp.com/GANTILINKDISINI":
         st.link_button("💬 Gabung Grup WhatsApp", LINK_WA, type="primary", use_container_width=True)
     else:
-        st.warning("⚠️ Link WA belum di-setting di script.")
+        st.warning("⚠️ Link WA belum di-setting.")
     st.divider()
     st.caption("NOVA QUANTUM ANALYTICS")
     st.caption("© 2026 Adien Novarisa")
