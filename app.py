@@ -22,20 +22,14 @@ TV_CHART_ID = "q94KuJTY"
 DB_FILE = "trading_history.csv"
 WATCHLIST_FILE = "my_watchlist.csv"
 
-# --- DAFTAR SAHAM (DIPERLUAS: LQ45 + BIG BANKS + TECH) ---
-# Ini mencakup saham konvensional (Bank) dan Syariah agar inklusif.
+# DAFTAR SAHAM (UNIVERSE DEFAULT)
 IDX_TICKERS = [
-    # BANK RAKSASA (BIG 4)
     "BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "BBTN.JK",
-    # TECH & DIGITAL
     "GOTO.JK", "EMTK.JK", "ARTO.JK", "BUKA.JK",
-    # BLUECHIP & CONSUMER
     "ASII.JK", "TLKM.JK", "UNVR.JK", "ICBP.JK", "INDF.JK", 
     "HMSP.JK", "GGRM.JK", "AMRT.JK", "MAPI.JK", "ACES.JK",
-    # KOMODITAS & ENERGI
     "ADRO.JK", "PTBA.JK", "PGAS.JK", "ANTM.JK", "INCO.JK", 
     "MDKA.JK", "MEDC.JK", "AKRA.JK", "UNTR.JK", "TINS.JK",
-    # INFRA & LAINNYA
     "JSMR.JK", "EXCL.JK", "ISAT.JK", "CPIN.JK", "JPFA.JK",
     "SMGR.JK", "BRIS.JK", "BRMS.JK", "BUMI.JK", "DEWA.JK"
 ]
@@ -122,7 +116,7 @@ def fetch_dashboard_data():
         usd_now = usd['Close'].iloc[-1]
         
         movers = []
-        for t in IDX_TICKERS: # Menggunakan List Baru
+        for t in IDX_TICKERS:
             try:
                 tk = yf.Ticker(f"{t}.JK" if ".JK" not in t else t)
                 hist = tk.history(period="2d")
@@ -204,18 +198,69 @@ st.caption("Professional Trading System by Adien Novarisa")
 
 display_market_dashboard()
 
-tab1, tab2, tab3 = st.tabs(["🔍 STEP 1: SCREENER", "⚡ STEP 2: EXECUTION", "🔐 STEP 3: PORTFOLIO"])
+tab1, tab2, tab3 = st.tabs(["🔍 SCREENER & ANALYST", "⚡ EXECUTION", "🔐 PORTFOLIO"])
 
-# --- TAB 1: SCREENER ---
+# --- TAB 1: SCREENER + SINGLE ANALYZER ---
 with tab1:
-    col_t1, col_t2 = st.columns([3, 1])
-    with col_t1:
-        st.header("🔍 Radar Saham")
-    with col_t2:
-        # INFORMASI UNIVERSE BARU
-        with st.expander("ℹ️ Daftar Saham (Universe)"):
-            list_saham = ", ".join([s.replace(".JK", "") for s in IDX_TICKERS])
-            st.info(f"**Sistem memindai {len(IDX_TICKERS)} Saham Terbesar (Liquid/Bluechip) di Indonesia:**\n\nTermasuk Bank BUKU 4, Tech, Consumer, & Komoditas.\n\n{list_saham}")
+    # --- BAGIAN 1: SINGLE STOCK ANALYZER (FITUR BARU) ---
+    st.header("🕵️ X-Ray Saham (Analisa Spesifik)")
+    with st.container(border=True):
+        col_in1, col_in2 = st.columns([3, 1])
+        with col_in1:
+            ticker_input = st.text_input("Ketik Kode Saham Apapun (Contoh: BREN, SIDO, BBCA):", placeholder="Masukkan Kode Saham...").upper()
+        with col_in2:
+            st.write("") # Spacer
+            st.write("") # Spacer
+            btn_analyze = st.button("🔍 CEK SEKARANG", type="primary")
+        
+        if btn_analyze and ticker_input:
+            with st.spinner(f"Menganalisa {ticker_input}..."):
+                df_single, info_single = get_hybrid_data(ticker_input)
+                if df_single is not None:
+                    # Logic Analisa
+                    curr_price = df_single['Close'].iloc[-1]
+                    prev_price = df_single['Close'].iloc[-2]
+                    chg_p = ((curr_price - prev_price)/prev_price)*100
+                    
+                    ma50 = df_single['Close'].rolling(50).mean().iloc[-1]
+                    ma200 = df_single['Close'].rolling(200).mean().iloc[-1]
+                    rsi_now = ta.rsi(df_single['Close'], length=14).iloc[-1]
+                    
+                    # Trend Status
+                    if curr_price > ma50 and ma50 > ma200: trend_st = "🚀 STRONG UPTREND"
+                    elif curr_price > ma200: trend_st = "📈 UPTREND"
+                    elif curr_price < ma200: trend_st = "📉 DOWNTREND (Bahaya)"
+                    else: trend_st = "➡️ SIDEWAYS"
+                    
+                    # Pattern Candle
+                    O = df_single['Open'].iloc[-1]; H = df_single['High'].iloc[-1]; L = df_single['Low'].iloc[-1]; C = df_single['Close'].iloc[-1]
+                    O_prev = df_single['Open'].iloc[-2]; C_prev = df_single['Close'].iloc[-2]
+                    body = abs(C - O); upper_shadow = H - max(C, O); lower_shadow = min(C, O) - L
+                    
+                    pola = "Tidak ada pola khusus"
+                    if rsi_now < 45:
+                        if (lower_shadow > body * 2) and (upper_shadow < body): pola = "🔨 HAMMER (Potensi Rebound)"
+                        elif (C > O) and (C_prev < O_prev) and (C > O_prev) and (O < C_prev): pola = "🔥 BULLISH ENGULFING (Pembeli Masuk)"
+                    
+                    # Tampilan Hasil
+                    k1, k2, k3 = st.columns(3)
+                    k1.metric(f"{ticker_input}", f"Rp {int(curr_price):,}", f"{chg_p:.2f}%")
+                    k2.metric("RSI (Momentum)", f"{int(rsi_now)}", "Area Murah" if rsi_now < 35 else "Netral")
+                    k3.metric("Trend Jangka Panjang", "MA 200", trend_st)
+                    
+                    st.info(f"**Analisa Candlestick:** {pola}")
+                    st.markdown(f"[➡️ Lihat Grafik Lengkap di TradingView](https://www.tradingview.com/chart/{TV_CHART_ID}/?symbol=IDX:{ticker_input})")
+                    
+                else:
+                    st.error("Saham tidak ditemukan atau data belum tersedia.")
+
+    st.markdown("---")
+
+    # --- BAGIAN 2: MARKET SCANNER (YANG LAMA) ---
+    st.header("📡 Radar Market (Scanner)")
+    with st.expander("ℹ️ Daftar Saham (Universe)"):
+        list_saham = ", ".join([s.replace(".JK", "") for s in IDX_TICKERS])
+        st.info(f"**Sistem memindai {len(IDX_TICKERS)} Saham Bluechip:**\n\n{list_saham}")
 
     if 'last_mode' not in st.session_state: st.session_state['last_mode'] = "Radar Diskon (Market Crash)"
     mode = st.radio("Pilih Strategi:", ["Radar Diskon (Market Crash)", "Reversal (Pantulan)", "Breakout (Tren Naik)", "Swing (Koreksi Sehat)"], horizontal=True)
@@ -232,22 +277,24 @@ with tab1:
         results = []
         progress_bar = st.progress(0)
         
-        # MENGGUNAKAN IDX_TICKERS (LIST BARU)
         for i, t in enumerate(IDX_TICKERS):
             progress_bar.progress((i + 1) / len(IDX_TICKERS))
             df, info = get_hybrid_data(t)
             if df is not None and info is not None:
+                # PERSIAPAN DATA
                 O = df['Open'].iloc[-1]; H = df['High'].iloc[-1]; L = df['Low'].iloc[-1]; C = df['Close'].iloc[-1]
                 O_prev = df['Open'].iloc[-2]; C_prev = df['Close'].iloc[-2]
                 body = abs(C - O); upper_shadow = H - max(C, O); lower_shadow = min(C, O) - L
                 rsi_series = ta.rsi(df['Close'], length=14); rsi_now = rsi_series.iloc[-1]
                 vol_now = df['Volume'].iloc[-1]; vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
                 
+                # DETEKSI POLA
                 pola_candle = ""; is_valid_reversal = False
                 if rsi_now < 45: 
                     if (lower_shadow > body * 2) and (upper_shadow < body): pola_candle = "🔨 HAMMER"; is_valid_reversal = True
                     elif (C > O) and (C_prev < O_prev) and (C > O_prev) and (O < C_prev): pola_candle = "🔥 ENGULFING"; is_valid_reversal = True
                 
+                # FILTER LOGIC
                 lolos = False
                 roe = info.get('returnOnEquity', 0) * 100 if info.get('returnOnEquity') else 0
                 per = info.get('trailingPE', 999) if info.get('trailingPE') else 999
@@ -267,6 +314,7 @@ with tab1:
                     if C > ma50 and L <= (ma50 * 1.05) and C > C_prev: lolos = True
 
                 if lolos:
+                    # SUSUN DATA
                     vol_ratio = vol_now / vol_avg
                     if vol_ratio < 0.6: v_txt = "😴 Sepi"
                     elif vol_ratio < 1.3: v_txt = "😐 Normal"
@@ -406,3 +454,4 @@ with tab3:
                     if c4.button("Jual", key=f"sell_{idx}"):
                         df_p.drop(idx).to_csv(DB_FILE, index=False); st.success("Done."); st.rerun()
                     st.markdown("---")
+                    
