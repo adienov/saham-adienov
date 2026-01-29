@@ -20,7 +20,7 @@ st.set_page_config(
 SECRET_PIN = "2026" 
 TV_CHART_ID = "q94KuJTY" 
 # 👇 MASUKKAN LINK GRUP WA DI BAWAH INI 👇
-LINK_WA = "https://chat.whatsapp.com/IwsFmoVxlNPHy6Sc1vaAqd?mode=gi_t" 
+LINK_WA = "https://chat.whatsapp.com/GANTILINKDISINI" 
 # ==========================================
 
 # FILES
@@ -57,7 +57,7 @@ def get_hybrid_data(ticker):
 def get_technical_detail(ticker):
     try:
         t = yf.Ticker(f"{ticker}.JK" if ".JK" not in ticker else ticker)
-        df = t.history(period="1y")
+        df = t.history(period="2y") # Ambil 2 tahun agar MA200 aman
         if len(df) < 200: return None
         close = int(df['Close'].iloc[-1])
         ma50 = int(df['Close'].rolling(50).mean().iloc[-1])
@@ -183,13 +183,15 @@ def display_market_dashboard():
     with c1: st.markdown("### 📊 MARKET DASHBOARD")
     with c2: st.markdown(f"<div style='text-align:right; color:gray; font-size:12px;'>📅 {get_indo_date()}<br>⚠️ Data Delayed ~15 Min</div>", unsafe_allow_html=True)
 
-    # ROW 1: METRICS
+    # ROW 1: METRICS (FONT UKURAN JUMBO 28px)
     k1, k2, k3, k4 = st.columns(4)
     col_ihsg = "#d32f2f" if ihsg_chg < 0 else "#388e3c"
-    with k1: st.markdown(f"<div style='text-align:center; background:#e3f2fd; padding:10px; border-radius:8px;'><b style='font-size:11px'>🇮🇩 IHSG</b><br><span style='font-size:18px'>{ihsg_now:,.0f}</span><br><span style='color:{col_ihsg}; font-size:12px'>{ihsg_chg:+.2f}%</span></div>", unsafe_allow_html=True)
-    with k2: st.markdown(f"<div style='text-align:center; background:#f1f8e9; padding:10px; border-radius:8px;'><b style='font-size:11px'>🇺🇸 USD/IDR</b><br><span style='font-size:18px'>Rp {usd_now:,.0f}</span><br><span style='color:#555; font-size:12px'>Rate</span></div>", unsafe_allow_html=True)
-    with k3: st.markdown(f"<div style='text-align:center; background:#fff8e1; padding:10px; border-radius:8px;'><b style='font-size:11px'>🥇 GOLD</b><br><span style='font-size:18px'>${commo['Gold']['Price']:,.0f}</span><br><span style='color:#555; font-size:12px'>{commo['Gold']['Chg']:.2f}%</span></div>", unsafe_allow_html=True)
-    with k4: st.markdown(f"<div style='text-align:center; background:#eceff1; padding:10px; border-radius:8px;'><b style='font-size:11px'>🛢️ OIL</b><br><span style='font-size:18px'>${commo['Oil']['Price']:,.1f}</span><br><span style='color:#555; font-size:12px'>{commo['Oil']['Chg']:.2f}%</span></div>", unsafe_allow_html=True)
+    
+    # Perhatikan style='font-size:28px' di bawah ini
+    with k1: st.markdown(f"<div style='text-align:center; background:#e3f2fd; padding:10px; border-radius:8px;'><b style='font-size:12px'>🇮🇩 IHSG</b><br><span style='font-size:28px; font-weight:bold;'>{ihsg_now:,.0f}</span><br><span style='color:{col_ihsg}; font-size:14px'>{ihsg_chg:+.2f}%</span></div>", unsafe_allow_html=True)
+    with k2: st.markdown(f"<div style='text-align:center; background:#f1f8e9; padding:10px; border-radius:8px;'><b style='font-size:12px'>🇺🇸 USD/IDR</b><br><span style='font-size:28px; font-weight:bold;'>Rp {usd_now:,.0f}</span><br><span style='color:#555; font-size:14px'>Rate</span></div>", unsafe_allow_html=True)
+    with k3: st.markdown(f"<div style='text-align:center; background:#fff8e1; padding:10px; border-radius:8px;'><b style='font-size:12px'>🥇 GOLD</b><br><span style='font-size:28px; font-weight:bold;'>${commo['Gold']['Price']:,.0f}</span><br><span style='color:#555; font-size:14px'>{commo['Gold']['Chg']:.2f}%</span></div>", unsafe_allow_html=True)
+    with k4: st.markdown(f"<div style='text-align:center; background:#eceff1; padding:10px; border-radius:8px;'><b style='font-size:12px'>🛢️ OIL</b><br><span style='font-size:28px; font-weight:bold;'>${commo['Oil']['Price']:,.1f}</span><br><span style='color:#555; font-size:14px'>{commo['Oil']['Chg']:.2f}%</span></div>", unsafe_allow_html=True)
 
     st.write("")
     st.info(f"📢 **OUTLOOK:** {generate_outlook_text(ihsg_now, ma200, rsi)}")
@@ -249,16 +251,22 @@ with tab1:
                         chg = ((cp-prev)/prev)*100
                         ma200 = d_s['Close'].rolling(200).mean().iloc[-1]
                         rsi = ta.rsi(d_s['Close'], length=14).iloc[-1]
-                        tr = "UPTREND 🚀" if cp > ma200 else "DOWNTREND 📉"
+                        
+                        # --- FIX ERROR DISINI (SAFE INT CONVERSION) ---
+                        rsi_safe = int(rsi) if pd.notna(rsi) else 0
+                        ma200_safe = int(ma200) if pd.notna(ma200) else 0
+                        
+                        tr = "UPTREND 🚀" if cp > ma200_safe else "DOWNTREND 📉"
+                        if ma200_safe == 0: tr = "DATA KURANG (N/A)"
                         
                         k1, k2 = st.columns(2)
                         k1.metric(txt_in, f"Rp {int(cp):,}", f"{chg:.2f}%")
                         k2.info(f"Trend: **{tr}**")
-                        st.markdown(f"**RSI:** {int(rsi)} | **MA200:** {int(ma200)}")
+                        st.markdown(f"**RSI:** {rsi_safe} | **MA200:** {ma200_safe}")
                         st.markdown(f"[➡️ Chart TradingView]({TV_CHART_ID}/?symbol=IDX:{txt_in})")
                     else: st.error("Saham tidak ditemukan.")
     
-    # --- KOLOM KANAN: PANDUAN EDUKASI (FITUR BARU) ---
+    # --- KOLOM KANAN: PANDUAN EDUKASI ---
     with col_right:
         with st.container(border=True):
             st.subheader("📖 Cara Baca Sinyal")
@@ -294,21 +302,25 @@ with tab1:
             if df is not None:
                 C = df['Close'].iloc[-1]; C1 = df['Close'].iloc[-2]
                 rsi = ta.rsi(df['Close'], 14).iloc[-1]
+                
+                # Safe conversion for scanner logic
+                rsi_val = rsi if pd.notna(rsi) else 50
+                
                 ok = False
                 if "Diskon" in mode: ok = True
                 elif "Reversal" in mode:
-                    if rsi < 45 and C > df['Open'].iloc[-1]: ok = True
+                    if rsi_val < 45 and C > df['Open'].iloc[-1]: ok = True
                 elif "Breakout" in mode:
                     if C == df['High'].rolling(20).max().iloc[-1]: ok = True
                 elif "Swing" in mode:
                     ma50 = df['Close'].rolling(50).mean().iloc[-1]
-                    if C > ma50 and C > C1: ok = True
+                    if pd.notna(ma50) and C > ma50 and C > C1: ok = True
                 
                 if ok:
                     chg = ((C-C1)/C1)*100
                     roe = inf.get('returnOnEquity',0)*100 if inf else 0
                     tv = f"https://www.tradingview.com/chart/{TV_CHART_ID}/?symbol=IDX:{t.replace('.JK','')}"
-                    res.append({"Pilih":False, "Stock":t.replace(".JK",""), "Price":int(C), "Chg%":chg, "ROE":f"{roe:.1f}%", "RSI":int(rsi), "Chart":tv})
+                    res.append({"Pilih":False, "Stock":t.replace(".JK",""), "Price":int(C), "Chg%":chg, "ROE":f"{roe:.1f}%", "RSI":int(rsi_val), "Chart":tv})
         bar.empty()
         if res: st.session_state['scan'] = pd.DataFrame(res)
         else: st.warning("Tidak ada saham sesuai kriteria.")
