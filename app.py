@@ -106,18 +106,14 @@ def get_porto_analysis(ticker, entry_price):
         return last_p, f"{gl_val:+.2f}%", action
     except: return 0, "0%", "-"
 
-# --- FUNGSI BARU: MARKET DASHBOARD ---
 def display_market_dashboard():
-    # 1. Ambil Data IHSG & USD
     try:
         ihsg = yf.Ticker("^JKSE").history(period="2d")
         usd = yf.Ticker("IDR=X").history(period="1d")
-        
         ihsg_now = ihsg['Close'].iloc[-1]
         ihsg_chg = ((ihsg_now - ihsg['Close'].iloc[-2]) / ihsg['Close'].iloc[-2]) * 100
         usd_now = usd['Close'].iloc[-1]
         
-        # 2. Scan Cepat Top Gainers/Losers dari Universe Bapak
         movers = []
         for t in SYARIAH_TICKERS:
             try:
@@ -128,7 +124,6 @@ def display_market_dashboard():
                     movers.append({"Stock": t.replace(".JK",""), "Chg": chg})
             except: pass
         
-        # Sortir
         df_movers = pd.DataFrame(movers)
         if not df_movers.empty:
             df_movers = df_movers.sort_values(by="Chg", ascending=False)
@@ -137,47 +132,37 @@ def display_market_dashboard():
         else:
             top_gainers, top_losers = pd.DataFrame(), pd.DataFrame()
 
-        # --- TAMPILAN DASHBOARD ---
         st.markdown("### 📊 MARKET OVERVIEW")
-        
-        # Baris 1: IHSG & USD
         k1, k2, k3 = st.columns([2, 1, 1])
         k1.metric("IHSG (Composite)", f"{ihsg_now:,.2f}", f"{ihsg_chg:.2f}%")
         k2.metric("USD/IDR", f"Rp {usd_now:,.0f}", "")
         
-        # Baris 2: Leaders & Laggards (Ala Mirae)
         c1, c2 = st.columns(2)
-        
         with c1:
             st.success("🏆 LEADERS (Top Gainers)")
             if not top_gainers.empty:
                 for _, row in top_gainers.iterrows():
                     st.write(f"**{row['Stock']}** : +{row['Chg']:.2f}%")
             else: st.write("-")
-            
         with c2:
             st.error("🔻 LAGGARDS (Top Losers)")
             if not top_losers.empty:
                 for _, row in top_losers.iterrows():
                     st.write(f"**{row['Stock']}** : {row['Chg']:.2f}%")
             else: st.write("-")
-            
         st.markdown("---")
-            
-    except: 
-        st.error("Gagal memuat data pasar. Cek koneksi internet.")
+    except: st.error("Gagal memuat data pasar.")
 
 # --- 3. UI UTAMA ---
 
 st.title("📈 ADIENOV TRADING PRO")
 st.caption("Professional Trading System by Adien Novarisa")
 
-# --- PANGGIL DASHBOARD DI SINI ---
 display_market_dashboard()
 
 tab1, tab2, tab3 = st.tabs(["🔍 STEP 1: SCREENER", "⚡ STEP 2: EXECUTION", "🔐 STEP 3: PORTFOLIO"])
 
-# --- TAB 1: SCREENER ---
+# --- TAB 1: SCREENER (AUTO-SIZE APPLIED) ---
 with tab1:
     st.header("🔍 Radar Saham")
     mode = st.radio("Pilih Strategi:", ["Radar Diskon (Market Crash)", "Reversal (Pantulan)", "Breakout (Tren Naik)", "Swing (Koreksi Sehat)"], horizontal=True)
@@ -209,7 +194,15 @@ with tab1:
                     kondisi_rsi = f"{int(rsi_now)} ({rsi_text}) | {arah}"
                     tv_link = f"https://www.tradingview.com/chart/{TV_CHART_ID}/?symbol=IDX:{t.replace('.JK','')}"
                     
-                    results.append({"Pilih": False, "Stock": t.replace(".JK",""), "Price": int(close), "Kualitas": f_stat, "ROE (%)": round(roe, 1), "Kondisi Harga (RSI)": kondisi_rsi, "Chart": tv_link})
+                    results.append({
+                        "Pilih": False, 
+                        "Stock": t.replace(".JK",""), 
+                        "Price": int(close), 
+                        "Kualitas": f_stat, 
+                        "ROE (%)": round(roe, 1), 
+                        "Kondisi Harga (RSI)": kondisi_rsi, 
+                        "Chart": tv_link
+                    })
         progress_bar.empty()
         
         if results:
@@ -219,7 +212,21 @@ with tab1:
         else: st.warning("Tidak ada saham yang sesuai kriteria saat ini.")
 
     if st.session_state['scan_results'] is not None:
-        edited_df = st.data_editor(st.session_state['scan_results'], column_config={"Pilih": st.column_config.CheckboxColumn("Pantau"), "Chart": st.column_config.LinkColumn("Grafik"), "Kualitas": st.column_config.TextColumn("Fundamental"), "ROE (%)": st.column_config.NumberColumn("ROE", format="%.1f%%"), "Kondisi Harga (RSI)": st.column_config.TextColumn("Status Diskon?", width="medium")}, hide_index=True, use_container_width=True)
+        # --- PERBAIKAN DI SINI: SETTING WIDTH KOLOM ---
+        edited_df = st.data_editor(
+            st.session_state['scan_results'], 
+            column_config={
+                "Pilih": st.column_config.CheckboxColumn("Pantau", width="small"),
+                "Stock": st.column_config.TextColumn("Emiten", width="small"),
+                "Price": st.column_config.NumberColumn("Harga", format="Rp %d", width="small"),
+                "Kualitas": st.column_config.TextColumn("Fundamental", width="medium"), # Agak lebar
+                "ROE (%)": st.column_config.NumberColumn("ROE", format="%.1f%%", width="small"),
+                "Kondisi Harga (RSI)": st.column_config.TextColumn("Status Diskon?", width="large", help="Indikator RSI"), # Paling lebar
+                "Chart": st.column_config.LinkColumn("Grafik", width="small")
+            }, 
+            hide_index=True, 
+            use_container_width=True # Memaksa tabel memenuhi layar
+        )
         
         if st.button("💾 MASUKKAN KE WATCHLIST"):
             selected = edited_df[edited_df["Pilih"] == True]["Stock"].tolist()
@@ -282,7 +289,6 @@ with tab2:
                     if col_b2.button(f"🛒 SIMULASI BELI {d['Stock']}", type="primary", key=f"buy_{d['Stock']}"):
                         pd.concat([load_data(DB_FILE, ["Tgl", "Stock", "Entry"]), pd.DataFrame([{"Tgl": datetime.now().strftime("%Y-%m-%d"), "Stock": d['Stock'], "Entry": d['Price']}])], ignore_index=True).to_csv(DB_FILE, index=False)
                         wl = wl[wl.Stock != d['Stock']]; wl.to_csv(WATCHLIST_FILE, index=False)
-                        
                         st.success(f"✅ **DATA TERSIMPAN.** {d['Stock']} berhasil dicatat ke Portfolio Admin.")
                         st.warning(f"🔔 **PENGINGAT EKSEKUSI:** Silakan buka aplikasi Sekuritas Anda dan lakukan Order Buy untuk **{d['Stock']}** secara real.")
                         st.stop() 
