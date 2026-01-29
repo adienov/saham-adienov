@@ -22,8 +22,23 @@ TV_CHART_ID = "q94KuJTY"
 DB_FILE = "trading_history.csv"
 WATCHLIST_FILE = "my_watchlist.csv"
 
-# DAFTAR SAHAM (UNIVERSE)
-SYARIAH_TICKERS = ["ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "MDKA.JK", "INCO.JK", "MEDC.JK", "BRMS.JK", "DEWA.JK", "BUMI.JK", "ADRO.JK", "PTBA.JK", "MYOR.JK", "JPFA.JK"]
+# --- DAFTAR SAHAM (DIPERLUAS: LQ45 + BIG BANKS + TECH) ---
+# Ini mencakup saham konvensional (Bank) dan Syariah agar inklusif.
+IDX_TICKERS = [
+    # BANK RAKSASA (BIG 4)
+    "BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "BBTN.JK",
+    # TECH & DIGITAL
+    "GOTO.JK", "EMTK.JK", "ARTO.JK", "BUKA.JK",
+    # BLUECHIP & CONSUMER
+    "ASII.JK", "TLKM.JK", "UNVR.JK", "ICBP.JK", "INDF.JK", 
+    "HMSP.JK", "GGRM.JK", "AMRT.JK", "MAPI.JK", "ACES.JK",
+    # KOMODITAS & ENERGI
+    "ADRO.JK", "PTBA.JK", "PGAS.JK", "ANTM.JK", "INCO.JK", 
+    "MDKA.JK", "MEDC.JK", "AKRA.JK", "UNTR.JK", "TINS.JK",
+    # INFRA & LAINNYA
+    "JSMR.JK", "EXCL.JK", "ISAT.JK", "CPIN.JK", "JPFA.JK",
+    "SMGR.JK", "BRIS.JK", "BRMS.JK", "BUMI.JK", "DEWA.JK"
+]
 
 # --- 2. FUNGSI BANTUAN (HELPER) ---
 
@@ -107,7 +122,7 @@ def fetch_dashboard_data():
         usd_now = usd['Close'].iloc[-1]
         
         movers = []
-        for t in SYARIAH_TICKERS:
+        for t in IDX_TICKERS: # Menggunakan List Baru
             try:
                 tk = yf.Ticker(f"{t}.JK" if ".JK" not in t else t)
                 hist = tk.history(period="2d")
@@ -120,7 +135,7 @@ def fetch_dashboard_data():
     except:
         return None, None, None, []
 
-# --- FUNGSI TAMPILAN DASHBOARD (CUSTOM HTML CENTERED) ---
+# --- FUNGSI TAMPILAN DASHBOARD ---
 def display_market_dashboard():
     ihsg_now, ihsg_chg, usd_now, movers = fetch_dashboard_data()
     
@@ -136,19 +151,14 @@ def display_market_dashboard():
     else:
         top_gainers, top_losers = pd.DataFrame(), pd.DataFrame()
 
-    # HEADER DASHBOARD DENGAN TANGGAL & DISCLAIMER
     c_title, c_date = st.columns([2, 1])
     with c_title:
         st.markdown("### 📊 MARKET OVERVIEW")
     with c_date:
-        # Tanggal
         st.markdown(f"<p style='text-align: right; color: gray; margin-bottom: 0px;'>📅 {get_indo_date()}</p>", unsafe_allow_html=True)
-        # Disclaimer Delay (Warna Oranye)
         st.markdown(f"<p style='text-align: right; color: #f57c00; font-size: 12px; margin-top: 0px;'>⚠️ Data Delayed ~15 Min (Yahoo Finance)</p>", unsafe_allow_html=True)
     
-    # --- KARTU IHSG & USD (CENTERED & COLORED) ---
     col_ihsg, col_usd = st.columns(2)
-    
     color_ihsg = "#d32f2f" if ihsg_chg < 0 else "#388e3c"
     
     with col_ihsg:
@@ -169,7 +179,6 @@ def display_market_dashboard():
         </div>
         """, unsafe_allow_html=True)
     
-    # TABEL GAINERS & LOSERS
     c1, c2 = st.columns(2)
     with c1:
         st.success("🏆 TOP GAINERS (Kenaikan Tertinggi)")
@@ -199,8 +208,15 @@ tab1, tab2, tab3 = st.tabs(["🔍 STEP 1: SCREENER", "⚡ STEP 2: EXECUTION", "�
 
 # --- TAB 1: SCREENER ---
 with tab1:
-    st.header("🔍 Radar Saham")
-    
+    col_t1, col_t2 = st.columns([3, 1])
+    with col_t1:
+        st.header("🔍 Radar Saham")
+    with col_t2:
+        # INFORMASI UNIVERSE BARU
+        with st.expander("ℹ️ Daftar Saham (Universe)"):
+            list_saham = ", ".join([s.replace(".JK", "") for s in IDX_TICKERS])
+            st.info(f"**Sistem memindai {len(IDX_TICKERS)} Saham Terbesar (Liquid/Bluechip) di Indonesia:**\n\nTermasuk Bank BUKU 4, Tech, Consumer, & Komoditas.\n\n{list_saham}")
+
     if 'last_mode' not in st.session_state: st.session_state['last_mode'] = "Radar Diskon (Market Crash)"
     mode = st.radio("Pilih Strategi:", ["Radar Diskon (Market Crash)", "Reversal (Pantulan)", "Breakout (Tren Naik)", "Swing (Koreksi Sehat)"], horizontal=True)
     
@@ -216,24 +232,22 @@ with tab1:
         results = []
         progress_bar = st.progress(0)
         
-        for i, t in enumerate(SYARIAH_TICKERS):
-            progress_bar.progress((i + 1) / len(SYARIAH_TICKERS))
+        # MENGGUNAKAN IDX_TICKERS (LIST BARU)
+        for i, t in enumerate(IDX_TICKERS):
+            progress_bar.progress((i + 1) / len(IDX_TICKERS))
             df, info = get_hybrid_data(t)
             if df is not None and info is not None:
-                # PERSIAPAN DATA
                 O = df['Open'].iloc[-1]; H = df['High'].iloc[-1]; L = df['Low'].iloc[-1]; C = df['Close'].iloc[-1]
                 O_prev = df['Open'].iloc[-2]; C_prev = df['Close'].iloc[-2]
                 body = abs(C - O); upper_shadow = H - max(C, O); lower_shadow = min(C, O) - L
                 rsi_series = ta.rsi(df['Close'], length=14); rsi_now = rsi_series.iloc[-1]
                 vol_now = df['Volume'].iloc[-1]; vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
                 
-                # DETEKSI POLA
                 pola_candle = ""; is_valid_reversal = False
                 if rsi_now < 45: 
                     if (lower_shadow > body * 2) and (upper_shadow < body): pola_candle = "🔨 HAMMER"; is_valid_reversal = True
                     elif (C > O) and (C_prev < O_prev) and (C > O_prev) and (O < C_prev): pola_candle = "🔥 ENGULFING"; is_valid_reversal = True
                 
-                # FILTER LOGIC
                 lolos = False
                 roe = info.get('returnOnEquity', 0) * 100 if info.get('returnOnEquity') else 0
                 per = info.get('trailingPE', 999) if info.get('trailingPE') else 999
@@ -253,7 +267,6 @@ with tab1:
                     if C > ma50 and L <= (ma50 * 1.05) and C > C_prev: lolos = True
 
                 if lolos:
-                    # SUSUN DATA
                     vol_ratio = vol_now / vol_avg
                     if vol_ratio < 0.6: v_txt = "😴 Sepi"
                     elif vol_ratio < 1.3: v_txt = "😐 Normal"
