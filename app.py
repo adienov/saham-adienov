@@ -8,7 +8,7 @@ from datetime import datetime
 
 # --- 1. SETTING IDENTITAS & KONFIGURASI ---
 st.set_page_config(
-    page_title="ADIENOV TRADING PRO",
+    page_title="NOVA QUANTUM",
     page_icon="🦅",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -25,7 +25,7 @@ WATCHLIST_FILE = "my_watchlist.csv"
 # DAFTAR SAHAM (UNIVERSE)
 SYARIAH_TICKERS = ["ANTM.JK", "BRIS.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "UNTR.JK", "PGAS.JK", "EXCL.JK", "ISAT.JK", "KLBF.JK", "MDKA.JK", "INCO.JK", "MEDC.JK", "BRMS.JK", "DEWA.JK", "BUMI.JK", "ADRO.JK", "PTBA.JK", "MYOR.JK", "JPFA.JK"]
 
-# --- 2. FUNGSI BANTUAN (HELPER) & CACHING ---
+# --- 2. FUNGSI BANTUAN (HELPER) ---
 
 def load_data(file, columns):
     if os.path.exists(file): return pd.read_csv(file)
@@ -84,11 +84,23 @@ def get_porto_analysis(ticker, entry_price):
         return last_p, f"{gl_val:+.2f}%", action
     except: return 0, "0%", "-"
 
-# --- OPTIMASI SPEED: CACHING DASHBOARD DATA (5 MENIT) ---
-@st.cache_data(ttl=300) # Data disimpan di memori selama 300 detik (5 menit)
+# FUNGSI TANGGAL INDONESIA
+def get_indo_date():
+    now = datetime.now()
+    days = {"Monday": "Senin", "Tuesday": "Selasa", "Wednesday": "Rabu", "Thursday": "Kamis", "Friday": "Jumat", "Saturday": "Sabtu", "Sunday": "Minggu"}
+    months = {"January": "Januari", "February": "Februari", "March": "Maret", "April": "April", "May": "Mei", "June": "Juni", "July": "Juli", "August": "Agustus", "September": "September", "October": "Oktober", "November": "November", "December": "Desember"}
+    
+    day_name = days[now.strftime("%A")]
+    month_name = months[now.strftime("%B")]
+    day_num = now.strftime("%d")
+    year = now.strftime("%Y")
+    
+    return f"{day_name}, {day_num} {month_name} {year}"
+
+# --- OPTIMASI SPEED: CACHING ---
+@st.cache_data(ttl=300)
 def fetch_dashboard_data():
     try:
-        # 1. Ambil Data Market
         ihsg = yf.Ticker("^JKSE").history(period="2d")
         usd = yf.Ticker("IDR=X").history(period="1d")
         
@@ -96,7 +108,6 @@ def fetch_dashboard_data():
         ihsg_chg = ((ihsg_now - ihsg['Close'].iloc[-2]) / ihsg['Close'].iloc[-2]) * 100
         usd_now = usd['Close'].iloc[-1]
         
-        # 2. Scan Top Gainers/Losers
         movers = []
         for t in SYARIAH_TICKERS:
             try:
@@ -113,7 +124,6 @@ def fetch_dashboard_data():
 
 # --- FUNGSI TAMPILAN DASHBOARD ---
 def display_market_dashboard():
-    # Panggil Data dari Cache (Cepat!)
     ihsg_now, ihsg_chg, usd_now, movers = fetch_dashboard_data()
     
     if ihsg_now is None:
@@ -128,7 +138,12 @@ def display_market_dashboard():
     else:
         top_gainers, top_losers = pd.DataFrame(), pd.DataFrame()
 
-    st.markdown("### 📊 MARKET OVERVIEW")
+    # HEADER DASHBOARD DENGAN TANGGAL
+    c_title, c_date = st.columns([2, 1])
+    with c_title:
+        st.markdown("### 📊 MARKET OVERVIEW")
+    with c_date:
+        st.markdown(f"<p style='text-align: right; color: gray;'>📅 {get_indo_date()}</p>", unsafe_allow_html=True)
     
     with st.container(border=True):
         k1, k2 = st.columns(2)
@@ -137,43 +152,26 @@ def display_market_dashboard():
     
     c1, c2 = st.columns(2)
     with c1:
-        # DIKSI BARU: Kenaikan Tertinggi
         st.success("🏆 TOP GAINERS (Kenaikan Tertinggi)")
         if not top_gainers.empty:
             df_gain = top_gainers[['Stock', 'Chg']].copy()
             df_gain = df_gain.rename(columns={'Stock': 'Emiten', 'Chg': 'Naik'})
-            st.dataframe(
-                df_gain,
-                column_config={
-                    "Emiten": st.column_config.TextColumn("Kode"),
-                    "Naik": st.column_config.NumberColumn("Kenaikan", format="+%.2f%%")
-                },
-                hide_index=True,
-                use_container_width=True
-            )
+            st.dataframe(df_gain, column_config={"Emiten": st.column_config.TextColumn("Kode"), "Naik": st.column_config.NumberColumn("Kenaikan", format="+%.2f%%")}, hide_index=True, use_container_width=True)
         else: st.write("-")
         
     with c2:
-        # DIKSI BARU: Koreksi Terdalam
         st.error("🔻 TOP LOSERS (Koreksi Terdalam)")
         if not top_losers.empty:
             df_loss = top_losers[['Stock', 'Chg']].copy()
             df_loss = df_loss.rename(columns={'Stock': 'Emiten', 'Chg': 'Turun'})
-            st.dataframe(
-                df_loss,
-                column_config={
-                    "Emiten": st.column_config.TextColumn("Kode"),
-                    "Turun": st.column_config.NumberColumn("Penurunan", format="%.2f%%")
-                },
-                hide_index=True,
-                use_container_width=True
-            )
+            st.dataframe(df_loss, column_config={"Emiten": st.column_config.TextColumn("Kode"), "Turun": st.column_config.NumberColumn("Penurunan", format="%.2f%%")}, hide_index=True, use_container_width=True)
         else: st.write("-")
     st.write("") 
 
 # --- 3. UI UTAMA APLIKASI ---
 
-st.title("📈 ADIENOV TRADING PRO")
+# JUDUL BARU YANG ELEGAN
+st.title("NOVA QUANTUM ANALYTICS")
 st.caption("Professional Trading System by Adien Novarisa")
 
 # Tampilkan Dashboard
@@ -186,13 +184,9 @@ tab1, tab2, tab3 = st.tabs(["🔍 STEP 1: SCREENER", "⚡ STEP 2: EXECUTION", "�
 with tab1:
     st.header("🔍 Radar Saham")
     
-    # Simpan mode sebelumnya
-    if 'last_mode' not in st.session_state:
-        st.session_state['last_mode'] = "Radar Diskon (Market Crash)"
-        
+    if 'last_mode' not in st.session_state: st.session_state['last_mode'] = "Radar Diskon (Market Crash)"
     mode = st.radio("Pilih Strategi:", ["Radar Diskon (Market Crash)", "Reversal (Pantulan)", "Breakout (Tren Naik)", "Swing (Koreksi Sehat)"], horizontal=True)
     
-    # AUTO-CLEAR LOGIC
     if mode != st.session_state['last_mode']:
         st.session_state['scan_results'] = None 
         st.session_state['last_mode'] = mode    
@@ -216,7 +210,7 @@ with tab1:
                 rsi_series = ta.rsi(df['Close'], length=14); rsi_now = rsi_series.iloc[-1]
                 vol_now = df['Volume'].iloc[-1]; vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
                 
-                # DETEKSI POLA CANDLE
+                # DETEKSI POLA
                 pola_candle = ""; is_valid_reversal = False
                 if rsi_now < 45: 
                     if (lower_shadow > body * 2) and (upper_shadow < body): pola_candle = "🔨 HAMMER"; is_valid_reversal = True
@@ -242,7 +236,6 @@ with tab1:
                     if C > ma50 and L <= (ma50 * 1.05) and C > C_prev: lolos = True
 
                 if lolos:
-                    # SUSUN DATA TAMPILAN
                     vol_ratio = vol_now / vol_avg
                     if vol_ratio < 0.6: v_txt = "😴 Sepi"
                     elif vol_ratio < 1.3: v_txt = "😐 Normal"
@@ -313,72 +306,4 @@ with tab2:
                 with st.expander(f"📊 {d['Stock']} | Rp {d['Price']:,} | {d['Timing']}"):
                     c1, c2, c3 = st.columns(3)
                     c1.markdown(f"**Tren:**\n{d['Trend']}")
-                    c2.markdown(f"**RSI:**\n{d['RSI']}")
-                    c3.markdown(f"**Grafik:**\n[Buka TradingView]({d['TV']})")
-                    st.divider()
-                    
-                    st.write("💰 **Simulasi Lot**")
-                    col_in1, col_in2, col_in3 = st.columns(3)
-                    modal = col_in1.number_input("Modal (Rp):", value=10000000, step=1000000, key=f"mod_{d['Stock']}")
-                    col_in1.caption(f"💵 Terbaca: **Rp {int(modal):,}**")
-                    risiko = col_in2.number_input("Risiko (%):", value=2.0, key=f"ris_{d['Stock']}")
-                    sl_price = col_in3.number_input("Cut Loss (Rp):", value=d['Support'], step=10, key=f"sl_{d['Stock']}")
-                    col_in3.caption(f"🔻 Terbaca: **Rp {int(sl_price):,}**")
-
-                    if sl_price < d['Price']:
-                        risiko_rp = modal * (risiko / 100)
-                        max_lot = int((risiko_rp / (d['Price'] - sl_price)) / 100)
-                        st.info(f"🛡️ Risiko Max: **Rp {int(risiko_rp):,}**. Beli Max: **{max_lot} LOT**.")
-                    else: st.warning("⚠️ Cut Loss harus di bawah harga pasar.")
-                    
-                    st.divider()
-                    col_b1, col_b2 = st.columns([1, 3])
-                    
-                    if col_b1.button("Hapus", key=f"del_{d['Stock']}"):
-                        wl = wl[wl.Stock != d['Stock']]; wl.to_csv(WATCHLIST_FILE, index=False); st.rerun()
-                        
-                    if col_b2.button(f"🛒 SIMULASI BELI {d['Stock']}", type="primary", key=f"buy_{d['Stock']}"):
-                        pd.concat([load_data(DB_FILE, ["Tgl", "Stock", "Entry"]), pd.DataFrame([{"Tgl": datetime.now().strftime("%Y-%m-%d"), "Stock": d['Stock'], "Entry": d['Price']}])], ignore_index=True).to_csv(DB_FILE, index=False)
-                        wl = wl[wl.Stock != d['Stock']]; wl.to_csv(WATCHLIST_FILE, index=False)
-                        st.success(f"✅ **DATA TERSIMPAN.** {d['Stock']} berhasil dicatat ke Portfolio Admin.")
-                        st.warning(f"🔔 **PENGINGAT EKSEKUSI:** Silakan buka aplikasi Sekuritas Anda dan lakukan Order Buy untuk **{d['Stock']}** secara real.")
-                        st.stop() 
-
-# --- TAB 3: PORTFOLIO ---
-with tab3:
-    st.header("🔐 Portfolio Administrator")
-    if 'porto_unlocked' not in st.session_state: st.session_state['porto_unlocked'] = False
-    if not st.session_state['porto_unlocked']:
-        st.warning("🔒 Halaman ini terkunci.")
-        with st.form("login_form"):
-            user_pin = st.text_input("Masukkan PIN Keamanan:", type="password")
-            if st.form_submit_button("BUKA AKSES"):
-                if user_pin == SECRET_PIN:
-                    st.session_state['porto_unlocked'] = True; st.success("Akses Diterima."); st.rerun()
-                else: st.error("PIN Salah.")
-    else:
-        col_p1, col_p2 = st.columns([3, 1])
-        with col_p1: st.success("✅ Akses Administrator Terbuka")
-        with col_p2:
-            if st.button("🔒 KUNCI KEMBALI"): st.session_state['porto_unlocked'] = False; st.rerun()
-        if st.button("🚨 RESET TOTAL PORTFOLIO", type="primary"):
-            if os.path.exists(DB_FILE): os.remove(DB_FILE); st.rerun()
-        
-        df_p = load_data(DB_FILE, ["Tgl", "Stock", "Entry"])
-        if df_p.empty: st.info("Belum ada aset.")
-        else:
-            st.metric("Total Emiten", f"{len(df_p)}")
-            st.write("---")
-            for idx, row in df_p.iterrows():
-                last, gl, act = get_porto_analysis(row['Stock'], row['Entry'])
-                with st.container():
-                    c1, c2, c3, c4 = st.columns([2, 2, 3, 1])
-                    c1.markdown(f"### {row['Stock']}")
-                    c1.caption(f"Buy: Rp {row['Entry']:,}")
-                    if "Profit" in act: c2.markdown(f"<h3 style='color:#00C853'>{gl}</h3>", unsafe_allow_html=True)
-                    elif "CUT" in act: c2.markdown(f"<h3 style='color:#D50000'>{gl}</h3>", unsafe_allow_html=True)
-                    else: c2.markdown(f"<h3>{gl}</h3>", unsafe_allow_html=True)
-                    c3.info(f"**Saran:** {act}")
-                    if c4.button("Jual", key=f"sell_{idx}"):
-                        df_p.drop(idx).to_csv(DB_FILE, index=False); st.success("Done."); st.rerun()
-                    st.markdown("---")
+                    c2.markdown(f"**RSI:**\n{
