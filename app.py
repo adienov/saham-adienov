@@ -113,6 +113,39 @@ def format_large_number(num):
     if num >= 1_000_000: return f"{num/1_000_000:.1f}jt"
     return str(int(num))
 
+# --- HELPER: HTML TABLE GENERATOR (UNTUK TAMPILAN PADAT & WARNA) ---
+def make_pretty_table(df, title, bg_color, header_color, col_map):
+    if df.empty: return ""
+    
+    html = f"""
+    <div style="background-color: {bg_color}; padding: 8px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 10px;">
+        <h5 style="text-align: center; margin: 0 0 5px 0; font-size: 13px; color: {header_color}; font-weight: bold;">{title}</h5>
+        <table style="width: 100%; border-collapse: collapse; font-size: 12px; background-color: rgba(255,255,255,0.5); border-radius: 5px;">
+            <tr style="border-bottom: 1px solid #ccc;">
+                <th style="text-align: center; padding: 4px;">Kode</th>
+                <th style="text-align: center; padding: 4px;">Nilai</th>
+            </tr>
+    """
+    for _, row in df.iterrows():
+        val_str = ""
+        # Logic format nilai berdasarkan tipe data
+        if "Chg" in row: 
+            color = "green" if row['Chg'] >= 0 else "red"
+            val_str = f"<span style='color:{color}; font-weight:bold;'>{row['Chg']:+.2f}%</span>"
+        elif "Vol" in row:
+            val_str = format_large_number(row['Vol'])
+        elif "Val" in row:
+            val_str = format_large_number(row['Val'])
+            
+        html += f"""
+            <tr style="border-bottom: 1px solid #eee;">
+                <td style="text-align: center; padding: 3px; font-weight:500;">{row['Stock']}</td>
+                <td style="text-align: center; padding: 3px;">{val_str}</td>
+            </tr>
+        """
+    html += "</table></div>"
+    return html
+
 # --- OPTIMASI SPEED: CACHING ---
 @st.cache_data(ttl=300)
 def fetch_dashboard_data():
@@ -142,14 +175,8 @@ def fetch_dashboard_data():
                     close_now = hist['Close'].iloc[-1]
                     chg = ((close_now - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100
                     vol = hist['Volume'].iloc[-1]
-                    val = close_now * vol # Estimasi Value Transaksi
-                    
-                    movers.append({
-                        "Stock": t.replace(".JK",""), 
-                        "Chg": chg,
-                        "Vol": vol,
-                        "Val": val
-                    })
+                    val = close_now * vol 
+                    movers.append({"Stock": t.replace(".JK",""), "Chg": chg, "Vol": vol, "Val": val})
             except: pass
             
         return ihsg_now, ihsg_chg, usd_now, ma200_ihsg, rsi_ihsg, commo_data, movers
@@ -202,44 +229,26 @@ def display_market_dashboard():
 
     st.write("")
     
-    # --- ROW 3: COMPACT TABLES (4 COLUMN GRID) ---
-    # Memproses Data Movers
+    # --- ROW 3: COMPACT & COLORFUL TABLES ---
     df_movers = pd.DataFrame(movers)
     if not df_movers.empty:
-        # 1. Gainers
         df_gain = df_movers.sort_values(by="Chg", ascending=False).head(3)[['Stock', 'Chg']]
-        # 2. Losers
         df_loss = df_movers.sort_values(by="Chg", ascending=True).head(3)[['Stock', 'Chg']]
-        # 3. Top Volume (Ramai)
         df_vol = df_movers.sort_values(by="Vol", ascending=False).head(3)[['Stock', 'Vol']]
-        df_vol['Vol'] = df_vol['Vol'].apply(format_large_number) # Format angka
-        # 4. Top Value (Big Money/Asing Proxy)
         df_val = df_movers.sort_values(by="Val", ascending=False).head(3)[['Stock', 'Val']]
-        df_val['Val'] = df_val['Val'].apply(format_large_number) # Format angka
     else:
         df_gain, df_loss, df_vol, df_val = pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     col_g, col_l, col_v, col_m = st.columns(4)
     
-    # Kolom 1: Gainers
     with col_g:
-        st.caption("🏆 Top Gainers")
-        st.dataframe(df_gain, column_config={"Stock": "Emiten", "Chg": st.column_config.NumberColumn("%", format="%.2f")}, hide_index=True, use_container_width=True)
-    
-    # Kolom 2: Losers
+        st.markdown(make_pretty_table(df_gain, "🏆 GAINERS", "#e8f5e9", "#2e7d32", "Chg"), unsafe_allow_html=True)
     with col_l:
-        st.caption("🔻 Top Losers")
-        st.dataframe(df_loss, column_config={"Stock": "Emiten", "Chg": st.column_config.NumberColumn("%", format="%.2f")}, hide_index=True, use_container_width=True)
-        
-    # Kolom 3: Top Volume
+        st.markdown(make_pretty_table(df_loss, "🔻 LOSERS", "#ffebee", "#c62828", "Chg"), unsafe_allow_html=True)
     with col_v:
-        st.caption("🔥 Paling Ramai (Vol)")
-        st.dataframe(df_vol, column_config={"Stock": "Emiten", "Vol": "Lot"}, hide_index=True, use_container_width=True)
-        
-    # Kolom 4: Top Value (Proxy Asing/Big Money)
+        st.markdown(make_pretty_table(df_vol, "🔥 VOLUME", "#e3f2fd", "#1565c0", "Vol"), unsafe_allow_html=True)
     with col_m:
-        st.caption("💰 Nilai Transaksi (Val)")
-        st.dataframe(df_val, column_config={"Stock": "Emiten", "Val": "Rp"}, hide_index=True, use_container_width=True)
+        st.markdown(make_pretty_table(df_val, "💰 VALUE", "#fff8e1", "#f9a825", "Val"), unsafe_allow_html=True)
         
     st.write("") 
 
