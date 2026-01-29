@@ -57,30 +57,34 @@ def get_hybrid_data(ticker):
 def get_technical_detail(ticker):
     try:
         t = yf.Ticker(f"{ticker}.JK" if ".JK" not in ticker else ticker)
-        df = t.history(period="2y") # Ambil 2 tahun agar MA200 aman
-        if len(df) < 200: return None
+        df = t.history(period="2y") # Coba ambil data panjang
+        if len(df) < 20: return None # Jika data sangat sedikit, skip
+        
         close = int(df['Close'].iloc[-1])
-        ma50 = int(df['Close'].rolling(50).mean().iloc[-1])
-        ma200 = int(df['Close'].rolling(200).mean().iloc[-1])
+        
+        # Safe Calculation (Handle NaN)
+        ma50 = df['Close'].rolling(50).mean().iloc[-1]
+        ma200 = df['Close'].rolling(200).mean().iloc[-1]
         rsi = ta.rsi(df['Close'], length=14).iloc[-1]
         
-        if close > ma50 and ma50 > ma200: trend = f"🚀 Strong Uptrend"
-        elif close > ma200: trend = f"📈 Uptrend Normal"
-        elif close < ma200: trend = f"📉 Downtrend (Hati-hati)"
-        else: trend = "➡️ Sideways"
+        # Logika Trend Adaptif (Solusi Data Kurang)
+        if pd.notna(ma200):
+            trend = f"🚀 Strong Uptrend" if close > ma50 and ma50 > ma200 else (f"📈 Uptrend Normal" if close > ma200 else "📉 Downtrend")
+        elif pd.notna(ma50):
+            trend = f"⚠️ Data < 1 Thn (Trend: {'Naik' if close > ma50 else 'Turun'})"
+        else:
+            trend = "🆕 Saham Baru IPO / Volatile"
         
         timing = "Wait"
-        if close > ma50:
-            dist = abs(close - ma50)/ma50
-            if dist < 0.05: timing = f"🟢 BUY AREA: {ma50}-{close}"
-            else: timing = f"⏳ TUNGGU KOREKSI: {ma50}"
-        elif close < ma200 and rsi < 35: timing = "👀 PANTAU REVERSAL"
+        # Simplifikasi timing
+        if pd.notna(ma50) and close > ma50: timing = "Buy Area"
+        elif pd.notna(ma200) and close < ma200 and rsi < 35: timing = "Pantau Reversal"
 
         support = int(df['Low'].tail(20).min())
         resistance = int(df['High'].tail(20).max())
         tv_url = f"https://www.tradingview.com/chart/{TV_CHART_ID}/?symbol=IDX:{ticker.replace('.JK','')}"
 
-        return {"Stock": ticker.replace(".JK",""), "Price": close, "Trend": trend, "RSI": int(rsi), "Timing": timing, "Support": support, "Resistance": resistance, "TV": tv_url}
+        return {"Stock": ticker.replace(".JK",""), "Price": close, "Trend": trend, "RSI": rsi, "MA200": ma200, "Timing": timing, "Support": support, "Resistance": resistance, "TV": tv_url}
     except: return None
 
 def get_porto_analysis(ticker, entry_price):
@@ -183,15 +187,13 @@ def display_market_dashboard():
     with c1: st.markdown("### 📊 MARKET DASHBOARD")
     with c2: st.markdown(f"<div style='text-align:right; color:gray; font-size:12px;'>📅 {get_indo_date()}<br>⚠️ Data Delayed ~15 Min</div>", unsafe_allow_html=True)
 
-    # ROW 1: METRICS (FONT UKURAN JUMBO 28px)
+    # ROW 1: METRICS (GIANT SIZE 36px)
     k1, k2, k3, k4 = st.columns(4)
     col_ihsg = "#d32f2f" if ihsg_chg < 0 else "#388e3c"
-    
-    # Perhatikan style='font-size:28px' di bawah ini
-    with k1: st.markdown(f"<div style='text-align:center; background:#e3f2fd; padding:10px; border-radius:8px;'><b style='font-size:12px'>🇮🇩 IHSG</b><br><span style='font-size:28px; font-weight:bold;'>{ihsg_now:,.0f}</span><br><span style='color:{col_ihsg}; font-size:14px'>{ihsg_chg:+.2f}%</span></div>", unsafe_allow_html=True)
-    with k2: st.markdown(f"<div style='text-align:center; background:#f1f8e9; padding:10px; border-radius:8px;'><b style='font-size:12px'>🇺🇸 USD/IDR</b><br><span style='font-size:28px; font-weight:bold;'>Rp {usd_now:,.0f}</span><br><span style='color:#555; font-size:14px'>Rate</span></div>", unsafe_allow_html=True)
-    with k3: st.markdown(f"<div style='text-align:center; background:#fff8e1; padding:10px; border-radius:8px;'><b style='font-size:12px'>🥇 GOLD</b><br><span style='font-size:28px; font-weight:bold;'>${commo['Gold']['Price']:,.0f}</span><br><span style='color:#555; font-size:14px'>{commo['Gold']['Chg']:.2f}%</span></div>", unsafe_allow_html=True)
-    with k4: st.markdown(f"<div style='text-align:center; background:#eceff1; padding:10px; border-radius:8px;'><b style='font-size:12px'>🛢️ OIL</b><br><span style='font-size:28px; font-weight:bold;'>${commo['Oil']['Price']:,.1f}</span><br><span style='color:#555; font-size:14px'>{commo['Oil']['Chg']:.2f}%</span></div>", unsafe_allow_html=True)
+    with k1: st.markdown(f"<div style='text-align:center; background:#e3f2fd; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🇮🇩 IHSG</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{ihsg_now:,.0f}</span><br><span style='color:{col_ihsg}; font-size:16px; font-weight:bold;'>{ihsg_chg:+.2f}%</span></div>", unsafe_allow_html=True)
+    with k2: st.markdown(f"<div style='text-align:center; background:#f1f8e9; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🇺🇸 USD/IDR</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{int(usd_now):,.0f}</span><br><span style='color:#555; font-size:16px;'>Rupiah</span></div>", unsafe_allow_html=True)
+    with k3: st.markdown(f"<div style='text-align:center; background:#fff8e1; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🥇 GOLD</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{int(commo['Gold']['Price']):,.0f}</span><br><span style='color:#555; font-size:16px;'>USD/Oz</span></div>", unsafe_allow_html=True)
+    with k4: st.markdown(f"<div style='text-align:center; background:#eceff1; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🛢️ OIL</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{commo['Oil']['Price']:,.1f}</span><br><span style='color:#555; font-size:16px;'>USD/Bbl</span></div>", unsafe_allow_html=True)
 
     st.write("")
     st.info(f"📢 **OUTLOOK:** {generate_outlook_text(ihsg_now, ma200, rsi)}")
@@ -245,34 +247,30 @@ with tab1:
             
             if btn_cek and txt_in:
                 with st.spinner("Analyzing..."):
-                    d_s, i_s = get_hybrid_data(txt_in)
+                    d_s = get_technical_detail(txt_in) # Panggil fungsi yang sudah di-update
                     if d_s is not None:
-                        cp = d_s['Close'].iloc[-1]; prev = d_s['Close'].iloc[-2]
-                        chg = ((cp-prev)/prev)*100
-                        ma200 = d_s['Close'].rolling(200).mean().iloc[-1]
-                        rsi = ta.rsi(d_s['Close'], length=14).iloc[-1]
+                        cp = d_s['Price']
                         
-                        # --- FIX ERROR DISINI (SAFE INT CONVERSION) ---
-                        rsi_safe = int(rsi) if pd.notna(rsi) else 0
-                        ma200_safe = int(ma200) if pd.notna(ma200) else 0
-                        
-                        tr = "UPTREND 🚀" if cp > ma200_safe else "DOWNTREND 📉"
-                        if ma200_safe == 0: tr = "DATA KURANG (N/A)"
+                        # FORMATTING SAFE STRINGS (SOLUSI DATA KURANG)
+                        rsi_disp = str(int(d_s['RSI'])) if pd.notna(d_s['RSI']) else "N/A"
+                        ma200_disp = str(int(d_s['MA200'])) if pd.notna(d_s['MA200']) else "-"
                         
                         k1, k2 = st.columns(2)
-                        k1.metric(txt_in, f"Rp {int(cp):,}", f"{chg:.2f}%")
-                        k2.info(f"Trend: **{tr}**")
-                        st.markdown(f"**RSI:** {rsi_safe} | **MA200:** {ma200_safe}")
-                        st.markdown(f"[➡️ Chart TradingView]({TV_CHART_ID}/?symbol=IDX:{txt_in})")
-                    else: st.error("Saham tidak ditemukan.")
+                        k1.metric(txt_in, f"Rp {int(cp):,}")
+                        k2.info(f"**{d_s['Trend']}**")
+                        
+                        st.markdown(f"**RSI:** {rsi_disp} | **MA200:** {ma200_disp}")
+                        st.markdown(f"[➡️ Chart TradingView]({d_s['TV']})")
+                    else: st.error("Saham tidak ditemukan / Data tidak tersedia.")
     
     # --- KOLOM KANAN: PANDUAN EDUKASI ---
     with col_right:
         with st.container(border=True):
             st.subheader("📖 Cara Baca Sinyal")
             st.markdown("""
-            * **MA200 (Garis Tren):** * Harga > MA200 = **Aman (Uptrend)**.
-                * Harga < MA200 = **Bahaya (Downtrend)**.
+            * **MA200 (Garis Tren):**
+                * Harga > MA200 = **Aman (Uptrend)**.
+                * Jika data "N/A", gunakan MA50/Chart.
             * **RSI (Momentum):**
                 * RSI < 30 = **Murah (Diskon)**.
                 * RSI > 70 = **Mahal (Rawan Jual)**.
