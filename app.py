@@ -49,9 +49,9 @@ def analyze_hybrid_logic(df, info, mode):
     roe = info.get('returnOnEquity', 0) * 100 if info.get('returnOnEquity') else 0
     per = info.get('trailingPE', 999) if info.get('trailingPE') else 999
     
-    fund_status = "⚠️ Mahal/Rugi"
+    fund_status = "⚠️ Mahal"
     if roe > 10 and per < 20: fund_status = "✅ Sehat"
-    if roe > 15 and per < 15: fund_status = "💎 Super (Murah & Bagus)"
+    if roe > 15 and per < 15: fund_status = "💎 Super" # Teks diperpendek agar tabel rapi
 
     if "Radar Diskon" in mode: return True, fund_status, roe, per
     elif "Reversal" in mode:
@@ -162,7 +162,7 @@ display_market_dashboard()
 
 tab1, tab2, tab3 = st.tabs(["🔍 STEP 1: SCREENER", "⚡ STEP 2: EXECUTION", "🔐 STEP 3: PORTFOLIO"])
 
-# --- TAB 1: SCREENER (FORCED PIXEL WIDTH) ---
+# --- TAB 1: SCREENER (COMPACT & RICH) ---
 with tab1:
     st.header("🔍 Radar Saham")
     mode = st.radio("Pilih Strategi:", ["Radar Diskon (Market Crash)", "Reversal (Pantulan)", "Breakout (Tren Naik)", "Swing (Koreksi Sehat)"], horizontal=True)
@@ -181,26 +181,36 @@ with tab1:
                 lolos, f_stat, roe, per = analyze_hybrid_logic(df, info, mode)
                 if lolos:
                     close = df['Close'].iloc[-1]
+                    prev_close = df['Close'].iloc[-2]
+                    
+                    # --- DATA BARU: CHG% & VOLUME ---
+                    chg_pct = ((close - prev_close) / prev_close) * 100
+                    vol_lot = df['Volume'].iloc[-1] / 100 # Dalam Lot
+                    
                     rsi_series = ta.rsi(df['Close'], length=14)
                     rsi_now = rsi_series.iloc[-1]
                     rsi_prev = rsi_series.iloc[-2]
                     
-                    if rsi_now < 30: rsi_text = "🔥 DISKON PARAH"
-                    elif rsi_now < 45: rsi_text = "✅ SUDAH MURAH"
+                    if rsi_now < 30: rsi_text = "🔥 DISKON"
+                    elif rsi_now < 45: rsi_text = "✅ MURAH"
                     elif rsi_now < 60: rsi_text = "😐 NORMAL"
-                    else: rsi_text = "⚠️ MULAI MAHAL"
+                    else: rsi_text = "⚠️ MAHAL"
                     
-                    arah = "↘️ Makin Murah" if rsi_now < rsi_prev else "↗️ Mulai Naik"
-                    kondisi_rsi = f"{int(rsi_now)} ({rsi_text}) | {arah}"
+                    arah = "↘️" if rsi_now < rsi_prev else "↗️"
+                    # Format teks diperpendek agar kolom tidak terlalu lebar
+                    kondisi_rsi = f"{int(rsi_now)} ({rsi_text}) {arah}"
+                    
                     tv_link = f"https://www.tradingview.com/chart/{TV_CHART_ID}/?symbol=IDX:{t.replace('.JK','')}"
                     
                     results.append({
                         "Pilih": False, 
                         "Stock": t.replace(".JK",""), 
-                        "Price": int(close), 
+                        "Price": int(close),
+                        "Chg%": chg_pct, # Kolom Baru
+                        "Vol (Lot)": int(vol_lot), # Kolom Baru
                         "Kualitas": f_stat, 
                         "ROE (%)": round(roe, 1), 
-                        "Kondisi Harga (RSI)": kondisi_rsi, 
+                        "RSI Info": kondisi_rsi, 
                         "Chart": tv_link
                     })
         progress_bar.empty()
@@ -212,21 +222,22 @@ with tab1:
         else: st.warning("Tidak ada saham yang sesuai kriteria saat ini.")
 
     if st.session_state['scan_results'] is not None:
-        # --- MODIFIKASI UKURAN KOLOM (FORCE PIXELS) ---
+        # --- TABEL RAPAT & KAYA INFORMASI ---
         edited_df = st.data_editor(
             st.session_state['scan_results'], 
             column_config={
-                "Pilih": st.column_config.CheckboxColumn("Pantau", width=70), # Kecil
-                "Stock": st.column_config.TextColumn("Emiten", width=80),     # Kecil
-                "Price": st.column_config.NumberColumn("Harga", format="Rp %d", width=100), # Sedang
-                "Kualitas": st.column_config.TextColumn("Fundamental", width=120),
-                "ROE (%)": st.column_config.NumberColumn("ROE", format="%.1f%%", width=80),
-                # PERHATIKAN: width=350 (Sangat Lebar untuk Teks Panjang)
-                "Kondisi Harga (RSI)": st.column_config.TextColumn("Status Diskon?", width=350, help="Indikator RSI"), 
-                "Chart": st.column_config.LinkColumn("Grafik", width=80)
+                "Pilih": st.column_config.CheckboxColumn("Add", width=50),
+                "Stock": st.column_config.TextColumn("Kode", width=60),
+                "Price": st.column_config.NumberColumn("Harga", format="Rp %d", width=80),
+                "Chg%": st.column_config.NumberColumn("Chg%", format="%.2f%%", width=70), # Info Tambahan
+                "Vol (Lot)": st.column_config.NumberColumn("Vol", width=70), # Info Tambahan
+                "Kualitas": st.column_config.TextColumn("Fund.", width=100),
+                "ROE (%)": st.column_config.NumberColumn("ROE", format="%.1f", width=60),
+                "RSI Info": st.column_config.TextColumn("Momentum (RSI)", width=200),
+                "Chart": st.column_config.LinkColumn("View", display_text="📈 Chart", width=70) # LINK PENDEK
             }, 
             hide_index=True, 
-            use_container_width=True 
+            use_container_width=True # Memenuhi layar
         )
         
         if st.button("💾 MASUKKAN KE WATCHLIST"):
