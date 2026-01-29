@@ -84,7 +84,6 @@ def get_porto_analysis(ticker, entry_price):
         return last_p, f"{gl_val:+.2f}%", action
     except: return 0, "0%", "-"
 
-# FUNGSI TANGGAL INDONESIA
 def get_indo_date():
     now = datetime.now()
     days = {"Monday": "Senin", "Tuesday": "Selasa", "Wednesday": "Rabu", "Thursday": "Kamis", "Friday": "Jumat", "Saturday": "Sabtu", "Sunday": "Minggu"}
@@ -94,7 +93,6 @@ def get_indo_date():
     month_name = months[now.strftime("%B")]
     day_num = now.strftime("%d")
     year = now.strftime("%Y")
-    
     return f"{day_name}, {day_num} {month_name} {year}"
 
 # --- OPTIMASI SPEED: CACHING ---
@@ -138,7 +136,7 @@ def display_market_dashboard():
     else:
         top_gainers, top_losers = pd.DataFrame(), pd.DataFrame()
 
-    # HEADER DASHBOARD DENGAN TANGGAL
+    # HEADER DASHBOARD
     c_title, c_date = st.columns([2, 1])
     with c_title:
         st.markdown("### 📊 MARKET OVERVIEW")
@@ -170,14 +168,11 @@ def display_market_dashboard():
 
 # --- 3. UI UTAMA APLIKASI ---
 
-# JUDUL BARU YANG ELEGAN
 st.title("NOVA QUANTUM ANALYTICS")
 st.caption("Professional Trading System by Adien Novarisa")
 
-# Tampilkan Dashboard
 display_market_dashboard()
 
-# --- DEFINISI TAB ---
 tab1, tab2, tab3 = st.tabs(["🔍 STEP 1: SCREENER", "⚡ STEP 2: EXECUTION", "🔐 STEP 3: PORTFOLIO"])
 
 # --- TAB 1: SCREENER ---
@@ -236,6 +231,7 @@ with tab1:
                     if C > ma50 and L <= (ma50 * 1.05) and C > C_prev: lolos = True
 
                 if lolos:
+                    # SUSUN DATA
                     vol_ratio = vol_now / vol_avg
                     if vol_ratio < 0.6: v_txt = "😴 Sepi"
                     elif vol_ratio < 1.3: v_txt = "😐 Normal"
@@ -306,4 +302,72 @@ with tab2:
                 with st.expander(f"📊 {d['Stock']} | Rp {d['Price']:,} | {d['Timing']}"):
                     c1, c2, c3 = st.columns(3)
                     c1.markdown(f"**Tren:**\n{d['Trend']}")
-                    c2.markdown(f"**RSI:**\n{
+                    c2.markdown(f"**RSI:**\n{d['RSI']}")
+                    c3.markdown(f"**Grafik:**\n[Buka TradingView]({d['TV']})")
+                    st.divider()
+                    
+                    st.write("💰 **Simulasi Lot**")
+                    col_in1, col_in2, col_in3 = st.columns(3)
+                    modal = col_in1.number_input("Modal (Rp):", value=10000000, step=1000000, key=f"mod_{d['Stock']}")
+                    col_in1.caption(f"💵 Terbaca: **Rp {int(modal):,}**")
+                    risiko = col_in2.number_input("Risiko (%):", value=2.0, key=f"ris_{d['Stock']}")
+                    sl_price = col_in3.number_input("Cut Loss (Rp):", value=d['Support'], step=10, key=f"sl_{d['Stock']}")
+                    col_in3.caption(f"🔻 Terbaca: **Rp {int(sl_price):,}**")
+
+                    if sl_price < d['Price']:
+                        risiko_rp = modal * (risiko / 100)
+                        max_lot = int((risiko_rp / (d['Price'] - sl_price)) / 100)
+                        st.info(f"🛡️ Risiko Max: **Rp {int(risiko_rp):,}**. Beli Max: **{max_lot} LOT**.")
+                    else: st.warning("⚠️ Cut Loss harus di bawah harga pasar.")
+                    
+                    st.divider()
+                    col_b1, col_b2 = st.columns([1, 3])
+                    
+                    if col_b1.button("Hapus", key=f"del_{d['Stock']}"):
+                        wl = wl[wl.Stock != d['Stock']]; wl.to_csv(WATCHLIST_FILE, index=False); st.rerun()
+                        
+                    if col_b2.button(f"🛒 SIMULASI BELI {d['Stock']}", type="primary", key=f"buy_{d['Stock']}"):
+                        pd.concat([load_data(DB_FILE, ["Tgl", "Stock", "Entry"]), pd.DataFrame([{"Tgl": datetime.now().strftime("%Y-%m-%d"), "Stock": d['Stock'], "Entry": d['Price']}])], ignore_index=True).to_csv(DB_FILE, index=False)
+                        wl = wl[wl.Stock != d['Stock']]; wl.to_csv(WATCHLIST_FILE, index=False)
+                        st.success(f"✅ **DATA TERSIMPAN.** {d['Stock']} berhasil dicatat ke Portfolio Admin.")
+                        st.warning(f"🔔 **PENGINGAT EKSEKUSI:** Silakan buka aplikasi Sekuritas Anda dan lakukan Order Buy untuk **{d['Stock']}** secara real.")
+                        st.stop() 
+
+# --- TAB 3: PORTFOLIO ---
+with tab3:
+    st.header("🔐 Portfolio Administrator")
+    if 'porto_unlocked' not in st.session_state: st.session_state['porto_unlocked'] = False
+    if not st.session_state['porto_unlocked']:
+        st.warning("🔒 Halaman ini terkunci.")
+        with st.form("login_form"):
+            user_pin = st.text_input("Masukkan PIN Keamanan:", type="password")
+            if st.form_submit_button("BUKA AKSES"):
+                if user_pin == SECRET_PIN:
+                    st.session_state['porto_unlocked'] = True; st.success("Akses Diterima."); st.rerun()
+                else: st.error("PIN Salah.")
+    else:
+        col_p1, col_p2 = st.columns([3, 1])
+        with col_p1: st.success("✅ Akses Administrator Terbuka")
+        with col_p2:
+            if st.button("🔒 KUNCI KEMBALI"): st.session_state['porto_unlocked'] = False; st.rerun()
+        if st.button("🚨 RESET TOTAL PORTFOLIO", type="primary"):
+            if os.path.exists(DB_FILE): os.remove(DB_FILE); st.rerun()
+        
+        df_p = load_data(DB_FILE, ["Tgl", "Stock", "Entry"])
+        if df_p.empty: st.info("Belum ada aset.")
+        else:
+            st.metric("Total Emiten", f"{len(df_p)}")
+            st.write("---")
+            for idx, row in df_p.iterrows():
+                last, gl, act = get_porto_analysis(row['Stock'], row['Entry'])
+                with st.container():
+                    c1, c2, c3, c4 = st.columns([2, 2, 3, 1])
+                    c1.markdown(f"### {row['Stock']}")
+                    c1.caption(f"Buy: Rp {row['Entry']:,}")
+                    if "Profit" in act: c2.markdown(f"<h3 style='color:#00C853'>{gl}</h3>", unsafe_allow_html=True)
+                    elif "CUT" in act: c2.markdown(f"<h3 style='color:#D50000'>{gl}</h3>", unsafe_allow_html=True)
+                    else: c2.markdown(f"<h3>{gl}</h3>", unsafe_allow_html=True)
+                    c3.info(f"**Saran:** {act}")
+                    if c4.button("Jual", key=f"sell_{idx}"):
+                        df_p.drop(idx).to_csv(DB_FILE, index=False); st.success("Done."); st.rerun()
+                    st.markdown("---")
