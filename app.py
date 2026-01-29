@@ -162,7 +162,7 @@ display_market_dashboard()
 
 tab1, tab2, tab3 = st.tabs(["🔍 STEP 1: SCREENER", "⚡ STEP 2: EXECUTION", "🔐 STEP 3: PORTFOLIO"])
 
-# --- TAB 1: SCREENER (AUTO-SIZE APPLIED) ---
+# --- TAB 1: SCREENER (FORCED PIXEL WIDTH) ---
 with tab1:
     st.header("🔍 Radar Saham")
     mode = st.radio("Pilih Strategi:", ["Radar Diskon (Market Crash)", "Reversal (Pantulan)", "Breakout (Tren Naik)", "Swing (Koreksi Sehat)"], horizontal=True)
@@ -212,20 +212,21 @@ with tab1:
         else: st.warning("Tidak ada saham yang sesuai kriteria saat ini.")
 
     if st.session_state['scan_results'] is not None:
-        # --- PERBAIKAN DI SINI: SETTING WIDTH KOLOM ---
+        # --- MODIFIKASI UKURAN KOLOM (FORCE PIXELS) ---
         edited_df = st.data_editor(
             st.session_state['scan_results'], 
             column_config={
-                "Pilih": st.column_config.CheckboxColumn("Pantau", width="small"),
-                "Stock": st.column_config.TextColumn("Emiten", width="small"),
-                "Price": st.column_config.NumberColumn("Harga", format="Rp %d", width="small"),
-                "Kualitas": st.column_config.TextColumn("Fundamental", width="medium"), # Agak lebar
-                "ROE (%)": st.column_config.NumberColumn("ROE", format="%.1f%%", width="small"),
-                "Kondisi Harga (RSI)": st.column_config.TextColumn("Status Diskon?", width="large", help="Indikator RSI"), # Paling lebar
-                "Chart": st.column_config.LinkColumn("Grafik", width="small")
+                "Pilih": st.column_config.CheckboxColumn("Pantau", width=70), # Kecil
+                "Stock": st.column_config.TextColumn("Emiten", width=80),     # Kecil
+                "Price": st.column_config.NumberColumn("Harga", format="Rp %d", width=100), # Sedang
+                "Kualitas": st.column_config.TextColumn("Fundamental", width=120),
+                "ROE (%)": st.column_config.NumberColumn("ROE", format="%.1f%%", width=80),
+                # PERHATIKAN: width=350 (Sangat Lebar untuk Teks Panjang)
+                "Kondisi Harga (RSI)": st.column_config.TextColumn("Status Diskon?", width=350, help="Indikator RSI"), 
+                "Chart": st.column_config.LinkColumn("Grafik", width=80)
             }, 
             hide_index=True, 
-            use_container_width=True # Memaksa tabel memenuhi layar
+            use_container_width=True 
         )
         
         if st.button("💾 MASUKKAN KE WATCHLIST"):
