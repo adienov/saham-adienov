@@ -57,34 +57,20 @@ def get_hybrid_data(ticker):
 def get_technical_detail(ticker):
     try:
         t = yf.Ticker(f"{ticker}.JK" if ".JK" not in ticker else ticker)
-        df = t.history(period="2y") # Coba ambil data panjang
-        if len(df) < 20: return None # Jika data sangat sedikit, skip
-        
+        df = t.history(period="2y")
+        if len(df) < 20: return None
         close = int(df['Close'].iloc[-1])
-        
-        # Safe Calculation (Handle NaN)
-        ma50 = df['Close'].rolling(50).mean().iloc[-1]
-        ma200 = df['Close'].rolling(200).mean().iloc[-1]
+        ma50 = int(df['Close'].rolling(50).mean().iloc[-1] if pd.notna(df['Close'].rolling(50).mean().iloc[-1]) else 0)
+        ma200 = int(df['Close'].rolling(200).mean().iloc[-1] if pd.notna(df['Close'].rolling(200).mean().iloc[-1]) else 0)
         rsi = ta.rsi(df['Close'], length=14).iloc[-1]
         
-        # Logika Trend Adaptif (Solusi Data Kurang)
-        if pd.notna(ma200):
-            trend = f"🚀 Strong Uptrend" if close > ma50 and ma50 > ma200 else (f"📈 Uptrend Normal" if close > ma200 else "📉 Downtrend")
-        elif pd.notna(ma50):
-            trend = f"⚠️ Data < 1 Thn (Trend: {'Naik' if close > ma50 else 'Turun'})"
+        if ma200 > 0:
+            trend = f"🚀 Strong Uptrend" if close > ma50 and ma50 > ma200 else (f"📈 Uptrend" if close > ma200 else "📉 Downtrend")
         else:
-            trend = "🆕 Saham Baru IPO / Volatile"
-        
-        timing = "Wait"
-        # Simplifikasi timing
-        if pd.notna(ma50) and close > ma50: timing = "Buy Area"
-        elif pd.notna(ma200) and close < ma200 and rsi < 35: timing = "Pantau Reversal"
+            trend = "⚠️ Data Terbatas"
 
-        support = int(df['Low'].tail(20).min())
-        resistance = int(df['High'].tail(20).max())
         tv_url = f"https://www.tradingview.com/chart/{TV_CHART_ID}/?symbol=IDX:{ticker.replace('.JK','')}"
-
-        return {"Stock": ticker.replace(".JK",""), "Price": close, "Trend": trend, "RSI": rsi, "MA200": ma200, "Timing": timing, "Support": support, "Resistance": resistance, "TV": tv_url}
+        return {"Stock": ticker.replace(".JK",""), "Price": close, "Trend": trend, "RSI": rsi, "MA200": ma200, "TV": tv_url}
     except: return None
 
 def get_porto_analysis(ticker, entry_price):
@@ -187,7 +173,7 @@ def display_market_dashboard():
     with c1: st.markdown("### 📊 MARKET DASHBOARD")
     with c2: st.markdown(f"<div style='text-align:right; color:gray; font-size:12px;'>📅 {get_indo_date()}<br>⚠️ Data Delayed ~15 Min</div>", unsafe_allow_html=True)
 
-    # ROW 1: METRICS (GIANT SIZE 36px)
+    # ROW 1: METRICS (GIANT SIZE)
     k1, k2, k3, k4 = st.columns(4)
     col_ihsg = "#d32f2f" if ihsg_chg < 0 else "#388e3c"
     with k1: st.markdown(f"<div style='text-align:center; background:#e3f2fd; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🇮🇩 IHSG</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{ihsg_now:,.0f}</span><br><span style='color:{col_ihsg}; font-size:16px; font-weight:bold;'>{ihsg_chg:+.2f}%</span></div>", unsafe_allow_html=True)
@@ -247,18 +233,16 @@ with tab1:
             
             if btn_cek and txt_in:
                 with st.spinner("Analyzing..."):
-                    d_s = get_technical_detail(txt_in) # Panggil fungsi yang sudah di-update
+                    d_s = get_technical_detail(txt_in)
                     if d_s is not None:
                         cp = d_s['Price']
-                        
-                        # FORMATTING SAFE STRINGS (SOLUSI DATA KURANG)
+                        # Safe conversion
                         rsi_disp = str(int(d_s['RSI'])) if pd.notna(d_s['RSI']) else "N/A"
-                        ma200_disp = str(int(d_s['MA200'])) if pd.notna(d_s['MA200']) else "-"
+                        ma200_disp = str(int(d_s['MA200'])) if pd.notna(d_s['MA200']) and d_s['MA200'] > 0 else "-"
                         
                         k1, k2 = st.columns(2)
                         k1.metric(txt_in, f"Rp {int(cp):,}")
                         k2.info(f"**{d_s['Trend']}**")
-                        
                         st.markdown(f"**RSI:** {rsi_disp} | **MA200:** {ma200_disp}")
                         st.markdown(f"[➡️ Chart TradingView]({d_s['TV']})")
                     else: st.error("Saham tidak ditemukan / Data tidak tersedia.")
@@ -270,19 +254,19 @@ with tab1:
             st.markdown("""
             * **MA200 (Garis Tren):**
                 * Harga > MA200 = **Aman (Uptrend)**.
-                * Jika data "N/A", gunakan MA50/Chart.
+                * Jika data "N/A", gunakan Chart.
             * **RSI (Momentum):**
                 * RSI < 30 = **Murah (Diskon)**.
                 * RSI > 70 = **Mahal (Rawan Jual)**.
-            * **Pola Candle:**
-                * 🔨 **Hammer:** Sinyal pantulan naik.
+            * **Volume:**
+                * Indikator "Meledak" = Minat besar.
             """)
             st.caption("💡 *Tips: Beli saat Tren Naik (di atas MA200) dan RSI sedang Murah.*")
 
     st.write("")
     st.markdown("---")
     
-    # --- BAGIAN BAWAH: RADAR MARKET (SCREENER) ---
+    # --- BAGIAN BAWAH: RADAR MARKET (SCANNER WITH DESCRIPTIONS) ---
     st.header("📡 Radar Market (Scanner)")
     
     if 'mode' not in st.session_state: st.session_state['mode'] = "Radar Diskon (Market Crash)"
@@ -298,16 +282,38 @@ with tab1:
             bar.progress((i+1)/len(IDX_TICKERS))
             df, inf = get_hybrid_data(t)
             if df is not None:
+                # Basic Data
                 C = df['Close'].iloc[-1]; C1 = df['Close'].iloc[-2]
+                O = df['Open'].iloc[-1]
                 rsi = ta.rsi(df['Close'], 14).iloc[-1]
-                
-                # Safe conversion for scanner logic
                 rsi_val = rsi if pd.notna(rsi) else 50
                 
+                # Volume Logic (Keterangan Ramai/Sepi)
+                vol_now = df['Volume'].iloc[-1]
+                vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
+                if pd.notna(vol_avg) and vol_avg > 0:
+                    v_ratio = vol_now / vol_avg
+                    if v_ratio > 2.5: v_txt = f"🔥 MELEDAK ({v_ratio:.1f}x)"
+                    elif v_ratio > 1.2: v_txt = "⚡ RAMAI"
+                    elif v_ratio < 0.6: v_txt = "😴 SEPI"
+                    else: v_txt = "😐 NORMAL"
+                else: v_txt = "-"
+
+                # RSI Logic (Keterangan Murah/Mahal)
+                if rsi_val < 30: r_txt = f"{int(rsi_val)} (DISKON)"
+                elif rsi_val < 45: r_txt = f"{int(rsi_val)} (MURAH)"
+                elif rsi_val > 70: r_txt = f"{int(rsi_val)} (MAHAL)"
+                else: r_txt = f"{int(rsi_val)} (NETRAL)"
+
+                # ROE Logic
+                roe = inf.get('returnOnEquity', 0) * 100 if inf else 0
+                roe_txt = f"{roe:.1f}% ({'BAGUS' if roe > 10 else 'KURANG'})"
+
+                # Filter Strategies
                 ok = False
                 if "Diskon" in mode: ok = True
                 elif "Reversal" in mode:
-                    if rsi_val < 45 and C > df['Open'].iloc[-1]: ok = True
+                    if rsi_val < 45 and C > O: ok = True
                 elif "Breakout" in mode:
                     if C == df['High'].rolling(20).max().iloc[-1]: ok = True
                 elif "Swing" in mode:
@@ -316,15 +322,35 @@ with tab1:
                 
                 if ok:
                     chg = ((C-C1)/C1)*100
-                    roe = inf.get('returnOnEquity',0)*100 if inf else 0
                     tv = f"https://www.tradingview.com/chart/{TV_CHART_ID}/?symbol=IDX:{t.replace('.JK','')}"
-                    res.append({"Pilih":False, "Stock":t.replace(".JK",""), "Price":int(C), "Chg%":chg, "ROE":f"{roe:.1f}%", "RSI":int(rsi_val), "Chart":tv})
+                    
+                    # APPEND DATA DENGAN KETERANGAN TEKS
+                    res.append({
+                        "Pilih": False, 
+                        "Stock": t.replace(".JK",""), 
+                        "Price": int(C), 
+                        "Chg%": chg,
+                        "Vol": v_txt,   # Kolom Deskriptif
+                        "RSI": r_txt,   # Kolom Deskriptif
+                        "ROE": roe_txt, # Kolom Deskriptif
+                        "Chart": tv
+                    })
+                    
         bar.empty()
         if res: st.session_state['scan'] = pd.DataFrame(res)
         else: st.warning("Tidak ada saham sesuai kriteria.")
 
     if st.session_state.get('scan') is not None:
-        edf = st.data_editor(st.session_state['scan'], column_config={"Chart": st.column_config.LinkColumn("View", display_text="📈")}, hide_index=True, use_container_width=True)
+        # Konfigurasi agar kolom Chart bisa diklik, sisanya teks biasa
+        edf = st.data_editor(
+            st.session_state['scan'], 
+            column_config={
+                "Chart": st.column_config.LinkColumn("View", display_text="📈"),
+                "Chg%": st.column_config.NumberColumn("Chg%", format="%.2f%%")
+            }, 
+            hide_index=True, 
+            use_container_width=True
+        )
         if st.button("Simpan ke Watchlist"): st.success("Tersimpan!")
 
 # TAB 2 & 3 DEFAULT
