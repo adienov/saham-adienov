@@ -86,7 +86,7 @@ def format_large_number(num):
     if num >= 1_000_000: return f"{num/1_000_000:.1f}jt"
     return str(int(num))
 
-# --- WIDGET CHART (BOLINGER + VOLUME) ---
+# --- WIDGET CHART (COMPACT) ---
 def render_tv_widget(symbol):
     html_code = f"""
     <div class="tradingview-widget-container">
@@ -107,11 +107,7 @@ def render_tv_widget(symbol):
         "enable_publishing": false,
         "allow_symbol_change": true,
         "container_id": "tradingview_chart",
-        "studies": [
-            "BB@tv-basicstudies", 
-            "MASimple@tv-basicstudies",
-            "RSI@tv-basicstudies"
-        ],
+        "studies": ["MASimple@tv-basicstudies", "RSI@tv-basicstudies", "AutoFib@tv-basicstudies"],
         "hide_side_toolbar": false
       }}
       );
@@ -248,7 +244,7 @@ with tab1:
     # KIRI: CHART
     with col_chart:
         if 'xray_ticker' not in st.session_state: st.session_state['xray_ticker'] = "BBCA"
-        st.markdown(f"**📈 Chart: {st.session_state['xray_ticker']}** (Bollinger + Volume)")
+        st.markdown(f"**📈 Chart: {st.session_state['xray_ticker']}** (Auto Fibonacci)")
         render_tv_widget(st.session_state['xray_ticker']) 
     
     # KANAN: INPUT & STATS
@@ -272,13 +268,11 @@ with tab1:
             else: st.warning("Data loading...")
             
             st.divider()
-            st.caption("🐋 **BANDARMOLOGY:**")
-            st.caption("- Chart menggunakan **Bollinger Bands**.")
-            st.caption("- Jika pita menyempit & volume naik = **Akumulasi**.")
+            st.caption("📖 **Tips:** Gunakan RSI < 30 untuk area beli (diskon).")
 
     st.markdown("---")
     
-    # --- ROW 2: SCANNER (BANDARMOLOGY ADDED) ---
+    # --- ROW 2: SCANNER (ULTIMATE HYBRID + CHAMPION RANKING) ---
     st.header("📡 Radar Market (Scanner)")
     
     col_rad1, col_rad2 = st.columns([3, 1])
@@ -287,10 +281,10 @@ with tab1:
         
         mode = st.radio("Strategi:", [
             "💎 SUPER SCREENER (Fundamental + Smart Money)",
-            "🐋 Deteksi Akumulasi Bandar (Smart Money)", # MODE BARU
+            "🌟 Golden Cross (Trend Awal)", 
+            "🐋 Deteksi Akumulasi Bandar (Smart Money)",
             "🐢 Turtle Breakout (Trend Follower)",
-            "🚀 Volatilitas Tinggi (Fast Trade)",
-            "📉 Radar Diskon (Market Crash)", 
+            "🚀 Volatilitas Tinggi (Fast Trade)"
         ], horizontal=True)
         
         if mode != st.session_state['mode']:
@@ -311,71 +305,76 @@ with tab1:
                     rsi = ta.rsi(df['Close'], 14).iloc[-1]
                     rsi_val = rsi if pd.notna(rsi) else 50
                     
-                    # VARIABEL PENTING
+                    # VARIABEL PENTING (DATA)
                     roe = inf.get('returnOnEquity', 0) * 100 if inf else 0
                     per = inf.get('trailingPE', 999) if inf else 999
+                    
                     vol_now = df['Volume'].iloc[-1]
                     vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
-                    
-                    # Cek Spike Volume
-                    is_spike = (pd.notna(vol_avg) and vol_now > vol_avg * 1.5)
-                    vol_ratio = vol_now / vol_avg if pd.notna(vol_avg) and vol_avg > 0 else 0
+                    is_spike = (pd.notna(vol_avg) and vol_now > vol_avg * 1.25) # VALIDASI VOLUME > 1.25x
                     
                     ma50 = df['Close'].rolling(50).mean().iloc[-1]
-                    is_uptrend = (pd.notna(ma50) and C > ma50)
+                    ma200 = df['Close'].rolling(200).mean().iloc[-1]
                     high_20 = df['High'].rolling(20).max().iloc[-1]
 
-                    # LOGIKA SCORING ROBOT (UNTUK URUTAN JUARA)
+                    # --- LOGIKA SCORING ROBOT (JUARA) ---
                     score = 0
                     rank_msg = "⚪ NEUTRAL"
                     
                     if "SUPER" in mode:
+                        is_uptrend = (pd.notna(ma50) and C > ma50)
                         if roe > 10: score += 1
                         if per < 20: score += 1
                         if rsi_val < 45: score += 1 
                         if is_uptrend: score += 1   
-                        if is_spike: score += 2     
+                        if is_spike: score += 2 # Volume wajib untuk skor tinggi
                         
                         if score >= 5: rank_msg = "💎 DIAMOND"
                         elif score >= 4: rank_msg = "✅ GOLD"
                         elif score >= 3: rank_msg = "⚡ SILVER"
                         if score < 3: score = 0 
 
-                    elif "Akumulasi" in mode: # LOGIKA BANDARMOLOGY
-                        # Syarat 1: Harga Sideways/Naik Tipis
+                    elif "Golden" in mode: # GOLDEN CROSS
+                        if pd.notna(ma50) and pd.notna(ma200) and ma50 > ma200:
+                            # Cek Cross Baru
+                            ma50_prev = df['Close'].rolling(50).mean().iloc[-5]
+                            ma200_prev = df['Close'].rolling(200).mean().iloc[-5]
+                            
+                            if ma50_prev <= ma200_prev: # Fresh Cross
+                                score = 2
+                                rank_msg = "✅ GOLD FRESH"
+                                if is_spike: # Validasi Volume
+                                    score = 3
+                                    rank_msg = "💎 DIAMOND CROSS"
+                            elif C > ma50:
+                                score = 1
+                                rank_msg = "⚡ STRONG TREND"
+                        else: score = 0
+
+                    elif "Akumulasi" in mode:
                         price_change = abs((C - C1)/C1)
                         if is_spike:
-                            if price_change < 0.02: # Harga gak gerak banyak tapi volume besar = Akumulasi Senyap
-                                score = 2
-                                rank_msg = "🥈 SILENT ACCUMULATION"
-                                if vol_ratio > 3.0: # Volume gila-gilaan
-                                    score = 3
-                                    rank_msg = "🥇 BIG ACCUMULATION"
-                            elif C > O: # Harga naik + Volume
-                                score = 1
-                                rank_msg = "🥉 VOLUME FLOW"
+                            if price_change < 0.02: 
+                                score = 2; rank_msg = "✅ SILENT ACCUM"
+                                if vol_now > vol_avg * 2.0: score = 3; rank_msg = "💎 WHALE ENTRY"
+                            elif C > O: score = 1; rank_msg = "⚡ VOL FLOW"
                         else: score = 0
 
                     elif "Turtle" in mode: 
                         if C >= high_20:
-                            score = 2; rank_msg = "🥈 TURTLE BREAKOUT"
-                            if is_spike: score = 3; rank_msg = "🥇 STRONG TURTLE"
-                        elif C >= (high_20 * 0.98): score = 1; rank_msg = "🥉 NEAR BREAKOUT"
+                            score = 2; rank_msg = "✅ BREAKOUT 20D"
+                            if is_spike: score = 3; rank_msg = "💎 STRONG BREAK"
+                        elif C >= (high_20 * 0.98): score = 1; rank_msg = "⚡ NEAR HIGH"
                         else: score = 0
 
                     elif "Volatilitas" in mode:
                         daily_range = ((H - L) / L) * 100
                         if daily_range > 2.0:
                             score = daily_range 
-                            if daily_range > 4.0: rank_msg = "💎 LIAR (>4%)"
-                            elif daily_range > 3.0: rank_msg = "✅ AKTIF (>3%)"
-                            else: rank_msg = "⚡ GERAK (>2%)"
-                        else: score = 0
-
-                    elif "Diskon" in mode:
-                        if rsi_val < 35: 
-                            score = 50 - rsi_val 
-                            rank_msg = "🟢 DISKON"
+                            if daily_range > 4.0 and is_spike: rank_msg = "💎 LIAR + VOL"
+                            elif daily_range > 4.0: rank_msg = "✅ LIAR (>4%)"
+                            elif daily_range > 3.0: rank_msg = "⚡ AKTIF (>3%)"
+                            else: score = 1; rank_msg = "⚪ GERAK"
                         else: score = 0
 
                     if score > 0: 
@@ -392,12 +391,21 @@ with tab1:
                         
             bar.empty()
             if res: 
+                # SORTING BERDASARKAN SKOR
                 df_res = pd.DataFrame(res).sort_values(by="Score", ascending=False)
+                
+                # --- MENAMBAHKAN KOLOM JUARA (1, 2, 3...) ---
                 df_res.reset_index(drop=True, inplace=True)
-                df_res.index = df_res.index + 1 
+                df_res.index = df_res.index + 1 # Mulai dari 1
+                
+                # Fungsi Lambda untuk Emoji Juara
                 df_res['🏆 Peringkat'] = df_res.index.map(lambda x: "🥇 JUARA 1" if x==1 else ("🥈 JUARA 2" if x==2 else ("🥉 JUARA 3" if x==3 else f"#{x}")))
                 
+                # Reorder Kolom (Peringkat Paling Kiri)
                 cols = ['🏆 Peringkat', 'Stock', 'Price', 'Chg%', 'STATUS', 'RSI', 'ROE']
+                # Hanya ambil kolom yang tersedia (karena mode lain mungkin gak ada ROE/PER)
+                cols = [c for c in cols if c in df_res.columns]
+                
                 st.session_state['scan'] = df_res[cols]
             else: st.warning("Tidak ada saham sesuai kriteria.")
 
