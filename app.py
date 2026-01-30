@@ -50,7 +50,17 @@ def get_technical_detail(ticker):
         t = yf.Ticker(f"{ticker}.JK" if ".JK" not in ticker else ticker)
         df = t.history(period="2y")
         if len(df) < 20: return None
+        
+        # DATA UTAMA (Close, Open, Low, High)
         close = int(df['Close'].iloc[-1])
+        open_p = int(df['Open'].iloc[-1])
+        high_p = int(df['High'].iloc[-1])
+        low_p = int(df['Low'].iloc[-1])
+        
+        # Hitung Average Price (Typical Price)
+        avg_p = int((high_p + low_p + close) / 3)
+
+        # Indikator
         ma20 = int(df['Close'].rolling(20).mean().iloc[-1] if pd.notna(df['Close'].rolling(20).mean().iloc[-1]) else 0)
         ma50 = int(df['Close'].rolling(50).mean().iloc[-1] if pd.notna(df['Close'].rolling(50).mean().iloc[-1]) else 0)
         ma200 = int(df['Close'].rolling(200).mean().iloc[-1] if pd.notna(df['Close'].rolling(200).mean().iloc[-1]) else 0)
@@ -61,7 +71,11 @@ def get_technical_detail(ticker):
             if close > ma200: trend = "🚀 Uptrend"
             else: trend = "📉 Downtrend"
         
-        return {"Stock": ticker.replace(".JK",""), "Price": close, "Trend": trend, "RSI": rsi, "MA200": ma200}
+        return {
+            "Stock": ticker.replace(".JK",""), 
+            "Price": close, "Open": open_p, "Low": low_p, "High": high_p, "Avg": avg_p,
+            "Trend": trend, "RSI": rsi, "MA200": ma200
+        }
     except: return None
 
 def get_indo_date():
@@ -135,7 +149,6 @@ def render_html_table(df, title, bg_color, text_color, val_col):
 # --- FETCH DASHBOARD (SAFE MODE) ---
 @st.cache_data(ttl=300)
 def fetch_dashboard_data():
-    # 1. FETCH IHSG
     ihsg_now, ihsg_chg, ma200_ihsg, rsi_ihsg = 0, 0, 0, 0
     try:
         ihsg_df = yf.Ticker("^JKSE").history(period="5d")
@@ -146,14 +159,12 @@ def fetch_dashboard_data():
             rsi_ihsg = ta.rsi(ihsg_df['Close'], length=14).iloc[-1]
     except: pass
 
-    # 2. FETCH USD
     usd_now = 0
     try:
         usd_df = yf.Ticker("IDR=X").history(period="1d")
         if not usd_df.empty: usd_now = usd_df['Close'].iloc[-1]
     except: pass
 
-    # 3. FETCH COMMODITIES (SAFE LOOP)
     commo_data = {"Gold": {"Price": 0, "Chg": 0}, "Oil": {"Price": 0, "Chg": 0}}
     try:
         gold_df = yf.Ticker("GC=F").history(period="5d")
@@ -169,10 +180,9 @@ def fetch_dashboard_data():
             commo_data["Oil"]["Chg"] = ((oil_df['Close'].iloc[-1] - oil_df['Close'].iloc[-2])/oil_df['Close'].iloc[-2])*100
     except: pass
 
-    # 4. MOVERS (Sample 5 stocks to save time)
     movers = []
     try:
-        for t in ["BBCA", "BBRI", "GOTO", "TLKM", "ASII"]: # Sampel Big Caps
+        for t in ["BBCA", "BBRI", "GOTO", "TLKM", "ASII"]: 
             tk = yf.Ticker(f"{t}.JK")
             hist = tk.history(period="2d")
             if len(hist) >= 2:
@@ -193,21 +203,17 @@ def generate_outlook_text(price, ma200, rsi):
 
 # --- MAIN UI ---
 def display_market_dashboard():
-    # Panggil fungsi safe fetch
     ihsg_now, ihsg_chg, usd_now, ma200, rsi, commo, movers = fetch_dashboard_data()
     
     c1, c2 = st.columns([2, 1])
     with c1: st.markdown("### 📊 MARKET DASHBOARD")
     with c2: st.markdown(f"<div style='text-align:right; color:gray; font-size:12px;'>📅 {get_indo_date()}<br>⚠️ Data Delayed ~15 Min</div>", unsafe_allow_html=True)
 
-    # ROW 1: METRICS
     k1, k2, k3, k4 = st.columns(4)
-    
     col_ihsg = "#d32f2f" if ihsg_chg < 0 else "#388e3c"
     col_gold = "#d32f2f" if commo['Gold']['Chg'] < 0 else "#388e3c"
     col_oil = "#d32f2f" if commo['Oil']['Chg'] < 0 else "#388e3c"
 
-    # Handling Zero Values (If fetch failed, show 0)
     ihsg_disp = f"{ihsg_now:,.0f}" if ihsg_now > 0 else "N/A"
     usd_disp = f"{int(usd_now):,.0f}" if usd_now > 0 else "N/A"
     gold_disp = f"{int(commo['Gold']['Price']):,.0f}" if commo['Gold']['Price'] > 0 else "N/A"
@@ -219,13 +225,10 @@ def display_market_dashboard():
     with k4: st.markdown(f"<div style='text-align:center; background:#eceff1; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🛢️ OIL</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{oil_disp}</span><br><span style='color:{col_oil}; font-size:16px; font-weight:bold;'>{commo['Oil']['Chg']:+.2f}%</span></div>", unsafe_allow_html=True)
 
     st.write("")
-    if ihsg_now > 0:
-        st.info(f"📢 **OUTLOOK:** {generate_outlook_text(ihsg_now, ma200, rsi)}")
-    else:
-        st.warning("⚠️ Koneksi ke data server sedang tidak stabil. Beberapa data mungkin kosong.")
+    if ihsg_now > 0: st.info(f"📢 **OUTLOOK:** {generate_outlook_text(ihsg_now, ma200, rsi)}")
+    else: st.warning("⚠️ Koneksi ke data server sedang tidak stabil. Beberapa data mungkin kosong.")
     st.write("")
 
-    # ROW 3: TABLES (Jika data movers ada)
     df_m = pd.DataFrame(movers)
     if not df_m.empty:
         g = df_m.sort_values(by="Chg", ascending=False).head(3)
@@ -278,9 +281,20 @@ with tab1:
             d_s = get_technical_detail(st.session_state['xray_ticker'])
             if d_s is not None:
                 rsi_safe = int(d_s['RSI']) if pd.notna(d_s['RSI']) else 0
-                st.metric("Harga Terkini", f"Rp {int(d_s['Price']):,}")
+                st.metric("Harga Terkini (Close)", f"Rp {int(d_s['Price']):,}")
                 st.success(f"{d_s['Trend']}")
-                st.info(f"RSI: {rsi_safe} | MA200: {int(d_s['MA200'])}")
+                
+                # --- NEW GRID LAYOUT FOR OPEN/LOW/HIGH/AVG ---
+                r1, r2 = st.columns(2)
+                with r1:
+                    st.write(f"🔹 **Open:** {int(d_s['Open']):,}")
+                    st.write(f"🔻 **Low:** {int(d_s['Low']):,}")
+                with r2:
+                    st.write(f"🔺 **High:** {int(d_s['High']):,}")
+                    st.write(f"⚖️ **Avg:** {int(d_s['Avg']):,}")
+                # ---------------------------------------------
+                
+                st.info(f"RSI: {rsi_safe} | MA200: {int(d_s['MA200']):,}")
             else: st.warning("Data loading...")
             st.divider()
             st.caption("🛡️ **FUNDAMENTAL SHIELD:** Cek kolom 'Kualitas' & 'Valuasi' di bawah.")
