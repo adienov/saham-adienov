@@ -18,6 +18,7 @@ st.set_page_config(
 # ⚙️ KONFIGURASI PENTING
 # ==========================================
 SECRET_PIN = "2026" 
+# 👇 MASUKKAN LINK GRUP WA DI BAWAH INI 👇
 LINK_WA = "https://chat.whatsapp.com/GANTILINKDISINI" 
 # ==========================================
 
@@ -184,11 +185,18 @@ def display_market_dashboard():
 
     # ROW 1: METRICS
     k1, k2, k3, k4 = st.columns(4)
+    
+    # Warna IHSG
     col_ihsg = "#d32f2f" if ihsg_chg < 0 else "#388e3c"
+    
+    # Warna Gold & Oil
+    col_gold = "#d32f2f" if commo['Gold']['Chg'] < 0 else "#388e3c"
+    col_oil = "#d32f2f" if commo['Oil']['Chg'] < 0 else "#388e3c"
+
     with k1: st.markdown(f"<div style='text-align:center; background:#e3f2fd; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🇮🇩 IHSG</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{ihsg_now:,.0f}</span><br><span style='color:{col_ihsg}; font-size:16px; font-weight:bold;'>{ihsg_chg:+.2f}%</span></div>", unsafe_allow_html=True)
     with k2: st.markdown(f"<div style='text-align:center; background:#f1f8e9; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🇺🇸 USD/IDR</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{int(usd_now):,.0f}</span><br><span style='color:#555; font-size:16px;'>Rupiah</span></div>", unsafe_allow_html=True)
-    with k3: st.markdown(f"<div style='text-align:center; background:#fff8e1; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🥇 GOLD</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{int(commo['Gold']['Price']):,.0f}</span><br><span style='color:#555; font-size:16px;'>USD/Oz</span></div>", unsafe_allow_html=True)
-    with k4: st.markdown(f"<div style='text-align:center; background:#eceff1; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🛢️ OIL</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{commo['Oil']['Price']:,.1f}</span><br><span style='color:#555; font-size:16px;'>USD/Bbl</span></div>", unsafe_allow_html=True)
+    with k3: st.markdown(f"<div style='text-align:center; background:#fff8e1; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🥇 GOLD</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{int(commo['Gold']['Price']):,.0f}</span><br><span style='color:{col_gold}; font-size:16px; font-weight:bold;'>{commo['Gold']['Chg']:+.2f}%</span></div>", unsafe_allow_html=True)
+    with k4: st.markdown(f"<div style='text-align:center; background:#eceff1; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🛢️ OIL</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{commo['Oil']['Price']:,.1f}</span><br><span style='color:{col_oil}; font-size:16px; font-weight:bold;'>{commo['Oil']['Chg']:+.2f}%</span></div>", unsafe_allow_html=True)
 
     st.write("")
     st.info(f"📢 **OUTLOOK:** {generate_outlook_text(ihsg_now, ma200, rsi)}")
@@ -274,7 +282,7 @@ with tab1:
             "🚀 Volatilitas Tinggi (Copet)"
         ], horizontal=True)
         
-        # --- FITUR BARU: EDUKASI FILOSOFIS ---
+        # FILOSOFI BOX
         if "SUPER" in mode:
             st.info("📖 **Filosofi: Benjamin Graham (The Intelligent Investor)**\n\n'Membeli saham adalah membeli kepemilikan bisnis. Carilah perusahaan bagus yang dijual dengan harga diskon (Undervalued) dan aman secara margin (Safety Margin).'")
         elif "Swing" in mode:
