@@ -112,7 +112,7 @@ def format_large_number(num):
     if num >= 1_000_000: return f"{num/1_000_000:.1f}jt"
     return str(int(num))
 
-# --- WIDGET CHART (HEIGHT INCREASED TO 580px) ---
+# --- WIDGET CHART (HEIGHT 620px) ---
 def render_tv_widget(symbol, mode):
     studies_list = []
     chart_desc = ""
@@ -129,7 +129,7 @@ def render_tv_widget(symbol, mode):
 
     studies_js = str(studies_list).replace("'", '"')
 
-    # TINGGI CHART DIUBAH KE 580 (BIAR SEJAJAR X-RAY)
+    # TINGGI CHART DISET KE 620px AGAR SEJAJAR DENGAN X-RAY
     html_code = f"""
     <div class="tradingview-widget-container">
       <div id="tradingview_chart"></div>
@@ -138,7 +138,7 @@ def render_tv_widget(symbol, mode):
       new TradingView.widget(
       {{
         "width": "100%",
-        "height": 580, 
+        "height": 620, 
         "symbol": "IDX:{symbol}",
         "interval": "D",
         "timezone": "Asia/Jakarta",
@@ -157,7 +157,7 @@ def render_tv_widget(symbol, mode):
     </div>
     """
     st.markdown(f"**📈 Chart: {symbol}** {chart_desc}")
-    components.html(html_code, height=590) # Height Container sedikit lebih besar
+    components.html(html_code, height=630)
 
 # --- HTML TABLE GENERATOR ---
 def render_html_table(df, title, bg_color, text_color, val_col):
@@ -185,7 +185,7 @@ def render_html_table(df, title, bg_color, text_color, val_col):
     """
     return html_code
 
-# --- FETCH DASHBOARD (SAFE MODE) ---
+# --- FETCH DASHBOARD ---
 @st.cache_data(ttl=300)
 def fetch_dashboard_data():
     ihsg_now, ihsg_chg, ma200_ihsg, rsi_ihsg = 0, 0, 0, 0
@@ -305,7 +305,10 @@ with tab1:
 
     with col_chart:
         if 'xray_ticker' not in st.session_state: st.session_state['xray_ticker'] = "BBCA"
-        render_tv_widget(st.session_state['xray_ticker'], current_mode) 
+        
+        # --- BINGKAI CHART AGAR SEIMBANG ---
+        with st.container(border=True):
+            render_tv_widget(st.session_state['xray_ticker'], current_mode) 
     
     with col_info:
         with st.container(border=True):
