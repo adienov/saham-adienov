@@ -268,7 +268,7 @@ with tab1:
             else: st.warning("Data loading...")
             
             st.divider()
-            st.caption("📖 **Tips:** Gunakan RSI < 30 untuk area beli (diskon).")
+            st.caption("📖 **Kamus:** RSI < 30 (Murah), Turtle Breakout = Harga Tembus High 20 Hari.")
 
     st.markdown("---")
     
@@ -281,9 +281,9 @@ with tab1:
         
         mode = st.radio("Strategi:", [
             "💎 SUPER SCREENER (Fundamental + Smart Money)",
+            "🐢 Turtle Breakout (Trend Follower)", # MODE TURTLE YANG BARU
             "🚀 Volatilitas Tinggi (Fast Trade)",
             "📉 Radar Diskon (Market Crash)", 
-            "📈 Breakout (Tren Naik)", 
             "🔄 Swing (Koreksi Sehat)"
         ], horizontal=True)
         
@@ -313,6 +313,9 @@ with tab1:
                     is_spike = (pd.notna(vol_avg) and vol_now > vol_avg * 1.5)
                     ma50 = df['Close'].rolling(50).mean().iloc[-1]
                     is_uptrend = (pd.notna(ma50) and C > ma50)
+                    
+                    # 20-Day High (Turtle Logic)
+                    high_20 = df['High'].rolling(20).max().iloc[-1]
 
                     # LOGIKA SCORING ROBOT (UNTUK URUTAN JUARA)
                     score = 0
@@ -330,6 +333,18 @@ with tab1:
                         elif score >= 3: rank_msg = "⚡ SILVER"
                         if score < 3: score = 0 
 
+                    elif "Turtle" in mode: # LOGIKA TURTLE TRADING
+                        if C >= high_20:
+                            score = 2
+                            rank_msg = "🥈 TURTLE BREAKOUT"
+                            if is_spike: 
+                                score = 3
+                                rank_msg = "🥇 STRONG TURTLE"
+                        elif C >= (high_20 * 0.98): # Near breakout
+                            score = 1
+                            rank_msg = "🥉 NEAR BREAKOUT"
+                        else: score = 0
+
                     elif "Volatilitas" in mode:
                         daily_range = ((H - L) / L) * 100
                         if daily_range > 2.0:
@@ -341,16 +356,10 @@ with tab1:
 
                     elif "Diskon" in mode:
                         if rsi_val < 35: 
-                            score = 50 - rsi_val # Semakin rendah RSI, skor makin tinggi
+                            score = 50 - rsi_val 
                             rank_msg = "🟢 DISKON"
                         else: score = 0
 
-                    elif "Reversal" in mode and rsi_val < 45 and C > O: 
-                        score = 1; rank_msg = "↗️ PANTULAN"
-                    
-                    elif "Breakout" in mode and C >= df['High'].rolling(20).max().iloc[-1]: 
-                        score = 5; rank_msg = "🚀 BREAKOUT"
-                    
                     elif "Swing" in mode and is_uptrend and C > C1: 
                         score = 2; rank_msg = "🔄 SWING"
 
@@ -381,7 +390,6 @@ with tab1:
                 
                 # Reorder Kolom (Peringkat Paling Kiri)
                 cols = ['🏆 Peringkat', 'Stock', 'Price', 'Chg%', 'STATUS', 'RSI', 'ROE', 'PER']
-                # Hanya ambil kolom yang tersedia (karena mode lain mungkin gak ada ROE/PER)
                 cols = [c for c in cols if c in df_res.columns]
                 
                 st.session_state['scan'] = df_res[cols]
