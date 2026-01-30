@@ -39,9 +39,9 @@ IDX_TICKERS = [
 def get_hybrid_data(ticker):
     try:
         t = yf.Ticker(f"{ticker}.JK" if ".JK" not in ticker else ticker)
-        df = t.history(period="6mo")
+        df = t.history(period="1y") # Butuh data lebih panjang untuk Ichimoku (52 periode)
         info = t.info 
-        if len(df) < 50: return None, None
+        if len(df) < 52: return None, None
         return df, info
     except: return None, None
 
@@ -49,16 +49,17 @@ def get_technical_detail(ticker):
     try:
         t = yf.Ticker(f"{ticker}.JK" if ".JK" not in ticker else ticker)
         df = t.history(period="2y")
-        if len(df) < 20: return None
+        if len(df) < 52: return None
         close = int(df['Close'].iloc[-1])
-        ma50 = int(df['Close'].rolling(50).mean().iloc[-1] if pd.notna(df['Close'].rolling(50).mean().iloc[-1]) else 0)
+        
+        # Simple MA Logic for Display
         ma200 = int(df['Close'].rolling(200).mean().iloc[-1] if pd.notna(df['Close'].rolling(200).mean().iloc[-1]) else 0)
         rsi = ta.rsi(df['Close'], length=14).iloc[-1]
         
         if ma200 > 0:
-            trend = f"🚀 Strong Uptrend" if close > ma50 and ma50 > ma200 else (f"📈 Uptrend" if close > ma200 else "📉 Downtrend")
+            trend = f"🚀 Uptrend" if close > ma200 else "📉 Downtrend"
         else:
-            trend = "⚠️ Data Terbatas"
+            trend = "⚠️ Data Kurang"
 
         return {"Stock": ticker.replace(".JK",""), "Price": close, "Trend": trend, "RSI": rsi, "MA200": ma200}
     except: return None
@@ -86,7 +87,7 @@ def format_large_number(num):
     if num >= 1_000_000: return f"{num/1_000_000:.1f}jt"
     return str(int(num))
 
-# --- WIDGET CHART (COMPACT) ---
+# --- WIDGET CHART (ICHIMOKU MODE) ---
 def render_tv_widget(symbol):
     html_code = f"""
     <div class="tradingview-widget-container">
@@ -96,7 +97,7 @@ def render_tv_widget(symbol):
       new TradingView.widget(
       {{
         "width": "100%",
-        "height": 380, 
+        "height": 400, 
         "symbol": "IDX:{symbol}",
         "interval": "D",
         "timezone": "Asia/Jakarta",
@@ -107,14 +108,17 @@ def render_tv_widget(symbol):
         "enable_publishing": false,
         "allow_symbol_change": true,
         "container_id": "tradingview_chart",
-        "studies": ["MASimple@tv-basicstudies", "RSI@tv-basicstudies", "AutoFib@tv-basicstudies"],
+        "studies": [
+            "IchimokuCloud@tv-basicstudies", 
+            "RSI@tv-basicstudies"
+        ],
         "hide_side_toolbar": false
       }}
       );
       </script>
     </div>
     """
-    components.html(html_code, height=390)
+    components.html(html_code, height=410)
 
 # --- HTML TABLE GENERATOR ---
 def render_html_table(df, title, bg_color, text_color, val_col):
@@ -241,10 +245,10 @@ tab1, tab2, tab3 = st.tabs(["🔍 SCREENER & ANALYST", "⚡ EXECUTION", "🔐 PO
 with tab1:
     col_chart, col_info = st.columns([1.6, 1])
     
-    # KIRI: CHART
+    # KIRI: CHART (ICHIMOKU)
     with col_chart:
         if 'xray_ticker' not in st.session_state: st.session_state['xray_ticker'] = "BBCA"
-        st.markdown(f"**📈 Chart: {st.session_state['xray_ticker']}** (Auto Fibonacci)")
+        st.markdown(f"**📈 Chart: {st.session_state['xray_ticker']}** (Ichimoku Cloud)")
         render_tv_widget(st.session_state['xray_ticker']) 
     
     # KANAN: INPUT & STATS
@@ -268,11 +272,13 @@ with tab1:
             else: st.warning("Data loading...")
             
             st.divider()
-            st.caption("📖 **Kamus:** RSI < 30 (Murah), Turtle Breakout = Harga Tembus High 20 Hari.")
+            st.caption("☁️ **ICHIMOKU:**")
+            st.caption("- Harga di ATAS Awan = **Trend Naik (Aman)**.")
+            st.caption("- Harga di BAWAH Awan = **Trend Turun (Bahaya)**.")
 
     st.markdown("---")
     
-    # --- ROW 2: SCANNER (ULTIMATE HYBRID + CHAMPION RANKING) ---
+    # --- ROW 2: SCANNER (ICHIMOKU ADDED) ---
     st.header("📡 Radar Market (Scanner)")
     
     col_rad1, col_rad2 = st.columns([3, 1])
@@ -281,10 +287,10 @@ with tab1:
         
         mode = st.radio("Strategi:", [
             "💎 SUPER SCREENER (Fundamental + Smart Money)",
-            "🐢 Turtle Breakout (Trend Follower)", # MODE TURTLE YANG BARU
+            "☁️ Ichimoku Trend (Anti-Badai)", # MODE BARU
+            "🐢 Turtle Breakout (Trend Follower)",
             "🚀 Volatilitas Tinggi (Fast Trade)",
             "📉 Radar Diskon (Market Crash)", 
-            "🔄 Swing (Koreksi Sehat)"
         ], horizontal=True)
         
         if mode != st.session_state['mode']:
@@ -305,27 +311,53 @@ with tab1:
                     rsi = ta.rsi(df['Close'], 14).iloc[-1]
                     rsi_val = rsi if pd.notna(rsi) else 50
                     
-                    # VARIABEL PENTING
+                    # VARIABEL FUNDAMENTAL
                     roe = inf.get('returnOnEquity', 0) * 100 if inf else 0
                     per = inf.get('trailingPE', 999) if inf else 999
-                    vol_now = df['Volume'].iloc[-1]
-                    vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
-                    is_spike = (pd.notna(vol_avg) and vol_now > vol_avg * 1.5)
-                    ma50 = df['Close'].rolling(50).mean().iloc[-1]
-                    is_uptrend = (pd.notna(ma50) and C > ma50)
                     
-                    # 20-Day High (Turtle Logic)
-                    high_20 = df['High'].rolling(20).max().iloc[-1]
+                    # VARIABEL ICHIMOKU (Manual Calculation for Scanner)
+                    # Tenkan-sen (9 period)
+                    high_9 = df['High'].rolling(9).max().iloc[-1]
+                    low_9 = df['Low'].rolling(9).min().iloc[-1]
+                    tenkan = (high_9 + low_9) / 2
+                    
+                    # Kijun-sen (26 period)
+                    high_26 = df['High'].rolling(26).max().iloc[-1]
+                    low_26 = df['Low'].rolling(26).min().iloc[-1]
+                    kijun = (high_26 + low_26) / 2
+                    
+                    # Cloud (Span A & Span B) - Shifted 26 periods ago to compare with TODAY
+                    # Karena cloud hari ini dibentuk dari data 26 hari lalu
+                    try:
+                        # Span A (Calculated 26 days ago)
+                        t_old = (df['High'].rolling(9).max().iloc[-26] + df['Low'].rolling(9).min().iloc[-26]) / 2
+                        k_old = (df['High'].rolling(26).max().iloc[-26] + df['Low'].rolling(26).min().iloc[-26]) / 2
+                        span_a_now = (t_old + k_old) / 2
+                        
+                        # Span B (Calculated 26 days ago)
+                        h_52 = df['High'].rolling(52).max().iloc[-26]
+                        l_52 = df['Low'].rolling(52).min().iloc[-26]
+                        span_b_now = (h_52 + l_52) / 2
+                        
+                        # Posisi Awan
+                        cloud_top = max(span_a_now, span_b_now)
+                        is_above_cloud = C > cloud_top
+                    except:
+                        is_above_cloud = False
 
-                    # LOGIKA SCORING ROBOT (UNTUK URUTAN JUARA)
+                    # LOGIKA SCORING
                     score = 0
                     rank_msg = "⚪ NEUTRAL"
                     
                     if "SUPER" in mode:
+                        vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
+                        is_spike = (pd.notna(vol_avg) and df['Volume'].iloc[-1] > vol_avg * 1.5)
+                        ma50 = df['Close'].rolling(50).mean().iloc[-1]
+                        
                         if roe > 10: score += 1
                         if per < 20: score += 1
                         if rsi_val < 45: score += 1 
-                        if is_uptrend: score += 1   
+                        if pd.notna(ma50) and C > ma50: score += 1   
                         if is_spike: score += 2     
                         
                         if score >= 5: rank_msg = "💎 DIAMOND"
@@ -333,16 +365,25 @@ with tab1:
                         elif score >= 3: rank_msg = "⚡ SILVER"
                         if score < 3: score = 0 
 
-                    elif "Turtle" in mode: # LOGIKA TURTLE TRADING
-                        if C >= high_20:
+                    elif "Ichimoku" in mode:
+                        if is_above_cloud:
                             score = 2
-                            rank_msg = "🥈 TURTLE BREAKOUT"
-                            if is_spike: 
+                            rank_msg = "✅ GOLD (Atas Awan)"
+                            if C > kijun and C > tenkan:
                                 score = 3
-                                rank_msg = "🥇 STRONG TURTLE"
-                        elif C >= (high_20 * 0.98): # Near breakout
+                                rank_msg = "💎 DIAMOND (Strong Trend)"
+                        elif C > tenkan and C > kijun: # Di bawah awan tapi mulai naik
                             score = 1
-                            rank_msg = "🥉 NEAR BREAKOUT"
+                            rank_msg = "⚡ SILVER (Reversal?)"
+                        else: score = 0
+
+                    elif "Turtle" in mode: 
+                        high_20 = df['High'].rolling(20).max().iloc[-1]
+                        if C >= high_20:
+                            score = 2; rank_msg = "🥈 TURTLE BREAKOUT"
+                            if df['Volume'].iloc[-1] > df['Volume'].rolling(20).mean().iloc[-1]: 
+                                score = 3; rank_msg = "🥇 STRONG TURTLE"
+                        elif C >= (high_20 * 0.98): score = 1; rank_msg = "🥉 NEAR BREAKOUT"
                         else: score = 0
 
                     elif "Volatilitas" in mode:
@@ -360,9 +401,6 @@ with tab1:
                             rank_msg = "🟢 DISKON"
                         else: score = 0
 
-                    elif "Swing" in mode and is_uptrend and C > C1: 
-                        score = 2; rank_msg = "🔄 SWING"
-
                     if score > 0: 
                         chg = ((C-C1)/C1)*100
                         res.append({
@@ -371,27 +409,18 @@ with tab1:
                             "Chg%": chg,
                             "RSI": int(rsi_val),
                             "ROE": f"{roe:.1f}%", 
-                            "PER": f"{per:.1f}x", 
                             "STATUS": rank_msg,
                             "Score": score
                         })
                         
             bar.empty()
             if res: 
-                # SORTING BERDASARKAN SKOR
                 df_res = pd.DataFrame(res).sort_values(by="Score", ascending=False)
-                
-                # --- MENAMBAHKAN KOLOM JUARA (1, 2, 3...) ---
                 df_res.reset_index(drop=True, inplace=True)
-                df_res.index = df_res.index + 1 # Mulai dari 1
-                
-                # Fungsi Lambda untuk Emoji Juara
+                df_res.index = df_res.index + 1 
                 df_res['🏆 Peringkat'] = df_res.index.map(lambda x: "🥇 JUARA 1" if x==1 else ("🥈 JUARA 2" if x==2 else ("🥉 JUARA 3" if x==3 else f"#{x}")))
                 
-                # Reorder Kolom (Peringkat Paling Kiri)
-                cols = ['🏆 Peringkat', 'Stock', 'Price', 'Chg%', 'STATUS', 'RSI', 'ROE', 'PER']
-                cols = [c for c in cols if c in df_res.columns]
-                
+                cols = ['🏆 Peringkat', 'Stock', 'Price', 'Chg%', 'STATUS', 'RSI', 'ROE']
                 st.session_state['scan'] = df_res[cols]
             else: st.warning("Tidak ada saham sesuai kriteria.")
 
