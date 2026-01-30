@@ -68,22 +68,19 @@ def get_technical_detail(ticker):
         upper_shadow = high_p - max(close, open_p)
         lower_shadow = min(close, open_p) - low_p
         
-        candle_status = "⚪ Neutral (Doji/Spinning)" # Default
+        candle_status = "⚪ Neutral" # Default
         
         if total_range > 0:
-            # Bullish Candles
-            if close > open_p:
-                if body > 0.8 * total_range: candle_status = "🟢 Bullish Marubozu (Strong Buy)"
-                elif lower_shadow > 2 * body: candle_status = "🔨 Hammer (Reversal Potential)"
+            if close > open_p: # Hijau
+                if body > 0.8 * total_range: candle_status = "🟢 Bullish Marubozu (Strong)"
+                elif lower_shadow > 2 * body: candle_status = "🔨 Hammer (Reversal?)"
                 else: candle_status = "🟢 Bullish Candle"
-            # Bearish Candles
-            elif close < open_p:
-                if body > 0.8 * total_range: candle_status = "🔴 Bearish Marubozu (Strong Sell)"
-                elif upper_shadow > 2 * body: candle_status = "☄️ Shooting Star (Reversal Potential)"
+            elif close < open_p: # Merah
+                if body > 0.8 * total_range: candle_status = "🔴 Bearish Marubozu (Weak)"
+                elif upper_shadow > 2 * body: candle_status = "☄️ Shooting Star (Drop?)"
                 else: candle_status = "🔴 Bearish Candle"
-            # Doji
             elif body <= 0.1 * total_range:
-                candle_status = "➕ Doji (Market Indecision)"
+                candle_status = "➕ Doji (Bingung)"
 
         # Indikator
         ma20 = int(df['Close'].rolling(20).mean().iloc[-1] if pd.notna(df['Close'].rolling(20).mean().iloc[-1]) else 0)
@@ -298,22 +295,33 @@ with tab1:
             st.markdown("#### 🕵️ X-Ray Saham")
             c_in, c_btn = st.columns([2, 1])
             with c_in: 
-                txt_in = st.text_input("Kode Saham:", value=st.session_state['xray_ticker']).upper()
+                # === REVISI AUTO SYNC (INPUT & ENTER) ===
+                new_ticker = st.text_input("Kode Saham:", value=st.session_state['xray_ticker']).upper()
             with c_btn: 
                 st.write(""); st.write("")
-                if st.button("🔍 Cek", type="primary", use_container_width=True):
-                    st.session_state['xray_ticker'] = txt_in
+                btn_cek = st.button("🔍 Cek", type="primary", use_container_width=True)
+            
+            # Logic Sync: Jika tombol ditekan ATAU input berubah (Enter)
+            if btn_cek or (new_ticker != st.session_state['xray_ticker']):
+                st.session_state['xray_ticker'] = new_ticker
+                st.rerun() # Refresh halaman agar Chart berubah
             
             d_s = get_technical_detail(st.session_state['xray_ticker'])
             if d_s is not None:
                 rsi_safe = int(d_s['RSI']) if pd.notna(d_s['RSI']) else 0
-                st.metric("Harga Terkini (Close)", f"Rp {int(d_s['Price']):,}", f"{d_s['Chg']:+.2f}%")
                 
-                # --- NEW CANDLE STATUS DISPLAY ---
+                # Menampilkan Harga dengan Warna Persentase
+                col_pct = "green" if d_s['Chg'] >= 0 else "red"
+                st.markdown(f"""
+                <div style="font-size: 24px; font-weight: bold;">
+                    Rp {int(d_s['Price']):,} 
+                    <span style="color: {col_pct}; font-size: 18px;">({d_s['Chg']:+.2f}%)</span>
+                </div>
+                """, unsafe_allow_html=True)
+                
                 st.success(f"{d_s['Trend']}")
                 st.markdown(f"🕯️ **Candle:** {d_s['Candle']}")
                 
-                # --- GRID LAYOUT ---
                 r1, r2 = st.columns(2)
                 with r1:
                     st.write(f"🔹 **Open:** {int(d_s['Open']):,}")
