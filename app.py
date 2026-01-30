@@ -132,67 +132,70 @@ def render_html_table(df, title, bg_color, text_color, val_col):
     """
     return html_code
 
-# --- FETCH DASHBOARD (FIXED ROBUSTNESS) ---
+# --- FETCH DASHBOARD (SAFE MODE) ---
 @st.cache_data(ttl=300)
 def fetch_dashboard_data():
+    # 1. FETCH IHSG
+    ihsg_now, ihsg_chg, ma200_ihsg, rsi_ihsg = 0, 0, 0, 0
     try:
-        ihsg = yf.Ticker("^JKSE").history(period="5d") 
-        usd = yf.Ticker("IDR=X").history(period="1d")
-        gold = yf.Ticker("GC=F").history(period="5d") # AMBIL 5 HARI UNTUK SAFETY
-        oil = yf.Ticker("CL=F").history(period="5d")
+        ihsg_df = yf.Ticker("^JKSE").history(period="5d")
+        if not ihsg_df.empty:
+            ihsg_now = ihsg_df['Close'].iloc[-1]
+            ihsg_chg = ((ihsg_now - ihsg_df['Close'].iloc[-2]) / ihsg_df['Close'].iloc[-2]) * 100
+            ma200_ihsg = ihsg_df['Close'].rolling(200).mean().iloc[-1] if len(ihsg_df) > 200 else 0
+            rsi_ihsg = ta.rsi(ihsg_df['Close'], length=14).iloc[-1]
+    except: pass
 
-        ihsg_now = ihsg['Close'].iloc[-1]
-        ihsg_chg = ((ihsg_now - ihsg['Close'].iloc[-2]) / ihsg['Close'].iloc[-2]) * 100
-        usd_now = usd['Close'].iloc[-1]
-        ma200_ihsg = ihsg['Close'].rolling(200).mean().iloc[-1]
-        rsi_ihsg = ta.rsi(ihsg['Close'], length=14).iloc[-1]
-        
-        # LOGIKA PERHITUNGAN EMAS & MINYAK YANG LEBIH KUAT
-        def get_change(df):
-            if len(df) >= 2:
-                # Jika data > 1 hari, bandingkan Close hari ini vs Close Kemarin
-                return df['Close'].iloc[-1], ((df['Close'].iloc[-1] - df['Close'].iloc[-2])/df['Close'].iloc[-2])*100
-            elif len(df) == 1:
-                # Jika cuma ada data hari ini, bandingkan Close vs Open
-                return df['Close'].iloc[-1], ((df['Close'].iloc[-1] - df['Open'].iloc[-1])/df['Open'].iloc[-1])*100
-            else:
-                return 0, 0
+    # 2. FETCH USD
+    usd_now = 0
+    try:
+        usd_df = yf.Ticker("IDR=X").history(period="1d")
+        if not usd_df.empty: usd_now = usd_df['Close'].iloc[-1]
+    except: pass
 
-        gold_p, gold_c = get_change(gold)
-        oil_p, oil_c = get_change(oil)
+    # 3. FETCH COMMODITIES (SAFE LOOP)
+    commo_data = {"Gold": {"Price": 0, "Chg": 0}, "Oil": {"Price": 0, "Chg": 0}}
+    try:
+        gold_df = yf.Ticker("GC=F").history(period="5d")
+        if len(gold_df) >= 2:
+            commo_data["Gold"]["Price"] = gold_df['Close'].iloc[-1]
+            commo_data["Gold"]["Chg"] = ((gold_df['Close'].iloc[-1] - gold_df['Close'].iloc[-2])/gold_df['Close'].iloc[-2])*100
+    except: pass
+    
+    try:
+        oil_df = yf.Ticker("CL=F").history(period="5d")
+        if len(oil_df) >= 2:
+            commo_data["Oil"]["Price"] = oil_df['Close'].iloc[-1]
+            commo_data["Oil"]["Chg"] = ((oil_df['Close'].iloc[-1] - oil_df['Close'].iloc[-2])/oil_df['Close'].iloc[-2])*100
+    except: pass
 
-        commo_data = {
-            "Gold": {"Price": gold_p, "Chg": gold_c},
-            "Oil": {"Price": oil_p, "Chg": oil_c}
-        }
-        
-        movers = []
-        for t in IDX_TICKERS:
-            try:
-                tk = yf.Ticker(f"{t}.JK" if ".JK" not in t else t)
-                hist = tk.history(period="2d")
-                if len(hist) >= 2:
-                    close_now = hist['Close'].iloc[-1]
-                    chg = ((close_now - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100
-                    vol = hist['Volume'].iloc[-1]
-                    val = close_now * vol 
-                    movers.append({"Stock": t.replace(".JK",""), "Chg": chg, "Vol": vol, "Val": val})
-            except: pass
+    # 4. MOVERS (Sample 5 stocks to save time)
+    movers = []
+    try:
+        for t in ["BBCA", "BBRI", "GOTO", "TLKM", "ASII"]: # Sampel Big Caps
+            tk = yf.Ticker(f"{t}.JK")
+            hist = tk.history(period="2d")
+            if len(hist) >= 2:
+                close_now = hist['Close'].iloc[-1]
+                chg = ((close_now - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100
+                vol = hist['Volume'].iloc[-1]
+                val = close_now * vol 
+                movers.append({"Stock": t, "Chg": chg, "Vol": vol, "Val": val})
+    except: pass
             
-        return ihsg_now, ihsg_chg, usd_now, ma200_ihsg, rsi_ihsg, commo_data, movers
-    except: return None, None, None, None, None, None, []
+    return ihsg_now, ihsg_chg, usd_now, ma200_ihsg, rsi_ihsg, commo_data, movers
 
 def generate_outlook_text(price, ma200, rsi):
-    if pd.isna(price) or pd.isna(ma200) or pd.isna(rsi): return "Menunggu data teknikal..."
+    if price == 0: return "Menunggu data pasar..."
     trend = "**BULLISH (Naik)**" if price > ma200 else "**BEARISH (Turun)**"
     action = "Waspada Profit Taking." if rsi > 70 else "Potensi Rebound." if rsi < 30 else "Pasar Stabil."
     return f"Posisi IHSG saat ini {trend} terhadap MA200. Momentum RSI: {action}"
 
 # --- MAIN UI ---
 def display_market_dashboard():
+    # Panggil fungsi safe fetch
     ihsg_now, ihsg_chg, usd_now, ma200, rsi, commo, movers = fetch_dashboard_data()
-    if ihsg_now is None: st.error("Gagal memuat data. Cek koneksi."); return
-
+    
     c1, c2 = st.columns([2, 1])
     with c1: st.markdown("### 📊 MARKET DASHBOARD")
     with c2: st.markdown(f"<div style='text-align:right; color:gray; font-size:12px;'>📅 {get_indo_date()}<br>⚠️ Data Delayed ~15 Min</div>", unsafe_allow_html=True)
@@ -204,16 +207,25 @@ def display_market_dashboard():
     col_gold = "#d32f2f" if commo['Gold']['Chg'] < 0 else "#388e3c"
     col_oil = "#d32f2f" if commo['Oil']['Chg'] < 0 else "#388e3c"
 
-    with k1: st.markdown(f"<div style='text-align:center; background:#e3f2fd; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🇮🇩 IHSG</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{ihsg_now:,.0f}</span><br><span style='color:{col_ihsg}; font-size:16px; font-weight:bold;'>{ihsg_chg:+.2f}%</span></div>", unsafe_allow_html=True)
-    with k2: st.markdown(f"<div style='text-align:center; background:#f1f8e9; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🇺🇸 USD/IDR</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{int(usd_now):,.0f}</span><br><span style='color:#555; font-size:16px;'>Rupiah</span></div>", unsafe_allow_html=True)
-    with k3: st.markdown(f"<div style='text-align:center; background:#fff8e1; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🥇 GOLD</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{int(commo['Gold']['Price']):,.0f}</span><br><span style='color:{col_gold}; font-size:16px; font-weight:bold;'>{commo['Gold']['Chg']:+.2f}%</span></div>", unsafe_allow_html=True)
-    with k4: st.markdown(f"<div style='text-align:center; background:#eceff1; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🛢️ OIL</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{commo['Oil']['Price']:,.1f}</span><br><span style='color:{col_oil}; font-size:16px; font-weight:bold;'>{commo['Oil']['Chg']:+.2f}%</span></div>", unsafe_allow_html=True)
+    # Handling Zero Values (If fetch failed, show 0)
+    ihsg_disp = f"{ihsg_now:,.0f}" if ihsg_now > 0 else "N/A"
+    usd_disp = f"{int(usd_now):,.0f}" if usd_now > 0 else "N/A"
+    gold_disp = f"{int(commo['Gold']['Price']):,.0f}" if commo['Gold']['Price'] > 0 else "N/A"
+    oil_disp = f"{commo['Oil']['Price']:,.1f}" if commo['Oil']['Price'] > 0 else "N/A"
+
+    with k1: st.markdown(f"<div style='text-align:center; background:#e3f2fd; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🇮🇩 IHSG</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{ihsg_disp}</span><br><span style='color:{col_ihsg}; font-size:16px; font-weight:bold;'>{ihsg_chg:+.2f}%</span></div>", unsafe_allow_html=True)
+    with k2: st.markdown(f"<div style='text-align:center; background:#f1f8e9; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🇺🇸 USD/IDR</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{usd_disp}</span><br><span style='color:#555; font-size:16px;'>Rupiah</span></div>", unsafe_allow_html=True)
+    with k3: st.markdown(f"<div style='text-align:center; background:#fff8e1; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🥇 GOLD</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{gold_disp}</span><br><span style='color:{col_gold}; font-size:16px; font-weight:bold;'>{commo['Gold']['Chg']:+.2f}%</span></div>", unsafe_allow_html=True)
+    with k4: st.markdown(f"<div style='text-align:center; background:#eceff1; padding:15px; border-radius:10px;'><b style='font-size:14px; color:#555;'>🛢️ OIL</b><br><span style='font-size:36px; font-weight:bold; color:#000;'>{oil_disp}</span><br><span style='color:{col_oil}; font-size:16px; font-weight:bold;'>{commo['Oil']['Chg']:+.2f}%</span></div>", unsafe_allow_html=True)
 
     st.write("")
-    st.info(f"📢 **OUTLOOK:** {generate_outlook_text(ihsg_now, ma200, rsi)}")
+    if ihsg_now > 0:
+        st.info(f"📢 **OUTLOOK:** {generate_outlook_text(ihsg_now, ma200, rsi)}")
+    else:
+        st.warning("⚠️ Koneksi ke data server sedang tidak stabil. Beberapa data mungkin kosong.")
     st.write("")
 
-    # ROW 3: TABLES
+    # ROW 3: TABLES (Jika data movers ada)
     df_m = pd.DataFrame(movers)
     if not df_m.empty:
         g = df_m.sort_values(by="Chg", ascending=False).head(3)
@@ -225,8 +237,6 @@ def display_market_dashboard():
         with c_l: st.markdown(render_html_table(l, "🔻 LOSERS", "#ffebee", "#c62828", "Chg"), unsafe_allow_html=True)
         with c_v: st.markdown(render_html_table(v, "🔥 VOLUME", "#e3f2fd", "#1565c0", "Vol"), unsafe_allow_html=True)
         with c_m: st.markdown(render_html_table(m, "💰 VALUE", "#fff8e1", "#f9a825", "Val"), unsafe_allow_html=True)
-    else: st.warning("Data market belum tersedia.")
-    st.write("")
 
 # --- SIDEBAR & HEADER ---
 with st.sidebar:
