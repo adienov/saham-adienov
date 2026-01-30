@@ -272,14 +272,13 @@ with tab1:
 
     st.markdown("---")
     
-    # --- ROW 2: SCANNER (ULTIMATE HYBRID) ---
+    # --- ROW 2: SCANNER (ULTIMATE HYBRID + CHAMPION RANKING) ---
     st.header("📡 Radar Market (Scanner)")
     
     col_rad1, col_rad2 = st.columns([3, 1])
     with col_rad1:
         if 'mode' not in st.session_state: st.session_state['mode'] = "💎 SUPER SCREENER (Fundamental + Smart Money)"
         
-        # MENU STRATEGI DIPERLENGKAP
         mode = st.radio("Strategi:", [
             "💎 SUPER SCREENER (Fundamental + Smart Money)",
             "🚀 Volatilitas Tinggi (Fast Trade)",
@@ -306,60 +305,55 @@ with tab1:
                     rsi = ta.rsi(df['Close'], 14).iloc[-1]
                     rsi_val = rsi if pd.notna(rsi) else 50
                     
-                    # --- VARIABEL PENTING ---
-                    # 1. Fundamental
+                    # VARIABEL PENTING
                     roe = inf.get('returnOnEquity', 0) * 100 if inf else 0
                     per = inf.get('trailingPE', 999) if inf else 999
-                    
-                    # 2. Volume
                     vol_now = df['Volume'].iloc[-1]
                     vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
                     is_spike = (pd.notna(vol_avg) and vol_now > vol_avg * 1.5)
-                    
-                    # 3. Trend
                     ma50 = df['Close'].rolling(50).mean().iloc[-1]
                     is_uptrend = (pd.notna(ma50) and C > ma50)
 
-                    # --- LOGIKA SCORING ROBOT ---
+                    # LOGIKA SCORING ROBOT (UNTUK URUTAN JUARA)
                     score = 0
                     rank_msg = "⚪ NEUTRAL"
                     
-                    # === MODE 1: SUPER SCREENER (HYBRID) ===
                     if "SUPER" in mode:
-                        # Syarat Fundamental (Wajib Bagus/Murah)
                         if roe > 10: score += 1
                         if per < 20: score += 1
+                        if rsi_val < 45: score += 1 
+                        if is_uptrend: score += 1   
+                        if is_spike: score += 2     
                         
-                        # Syarat Teknikal (Diskon atau Breakout)
-                        if rsi_val < 45: score += 1 # Diskon
-                        if is_uptrend: score += 1   # Trend Aman
-                        if is_spike: score += 2     # Ada Smart Money Masuk (Bobot Tinggi)
-                        
-                        # Penentuan Rank
-                        if score >= 5: rank_msg = "💎 DIAMOND (Strong Buy)"
-                        elif score >= 4: rank_msg = "✅ GOLD (Accumulate)"
-                        elif score >= 3: rank_msg = "⚡ SILVER (Speculative)"
-                        
-                        # Filter Tampil: Hanya skor 3 ke atas
+                        if score >= 5: rank_msg = "💎 DIAMOND"
+                        elif score >= 4: rank_msg = "✅ GOLD"
+                        elif score >= 3: rank_msg = "⚡ SILVER"
                         if score < 3: score = 0 
 
-                    # === MODE 2: FAST TRADE (VOLATILITAS) ===
                     elif "Volatilitas" in mode:
                         daily_range = ((H - L) / L) * 100
                         if daily_range > 2.0:
-                            score = daily_range # Skor berdasarkan lebar range
+                            score = daily_range 
                             if daily_range > 4.0: rank_msg = "💎 LIAR (>4%)"
                             elif daily_range > 3.0: rank_msg = "✅ AKTIF (>3%)"
                             else: rank_msg = "⚡ GERAK (>2%)"
                         else: score = 0
 
-                    # === MODE LAIN (STANDAR) ===
-                    elif "Diskon" in mode and rsi_val < 35: score = 50 - rsi_val; rank_msg = "🟢 DISKON"
-                    elif "Reversal" in mode and rsi_val < 45 and C > O: score = 1; rank_msg = "↗️ PANTULAN"
-                    elif "Breakout" in mode and C >= df['High'].rolling(20).max().iloc[-1]: score = 5; rank_msg = "🚀 BREAKOUT"
-                    elif "Swing" in mode and is_uptrend and C > C1: score = 2; rank_msg = "🔄 SWING"
+                    elif "Diskon" in mode:
+                        if rsi_val < 35: 
+                            score = 50 - rsi_val # Semakin rendah RSI, skor makin tinggi
+                            rank_msg = "🟢 DISKON"
+                        else: score = 0
 
-                    # APPEND HASIL JIKA LOLOS
+                    elif "Reversal" in mode and rsi_val < 45 and C > O: 
+                        score = 1; rank_msg = "↗️ PANTULAN"
+                    
+                    elif "Breakout" in mode and C >= df['High'].rolling(20).max().iloc[-1]: 
+                        score = 5; rank_msg = "🚀 BREAKOUT"
+                    
+                    elif "Swing" in mode and is_uptrend and C > C1: 
+                        score = 2; rank_msg = "🔄 SWING"
+
                     if score > 0: 
                         chg = ((C-C1)/C1)*100
                         res.append({
@@ -367,16 +361,30 @@ with tab1:
                             "Price": int(C), 
                             "Chg%": chg,
                             "RSI": int(rsi_val),
-                            "ROE": f"{roe:.1f}%", # Tampilkan ROE
-                            "PER": f"{per:.1f}x", # Tampilkan PER
+                            "ROE": f"{roe:.1f}%", 
+                            "PER": f"{per:.1f}x", 
                             "STATUS": rank_msg,
                             "Score": score
                         })
                         
             bar.empty()
             if res: 
-                df_res = pd.DataFrame(res).sort_values(by="Score", ascending=False).drop(columns=["Score"])
-                st.session_state['scan'] = df_res
+                # SORTING BERDASARKAN SKOR
+                df_res = pd.DataFrame(res).sort_values(by="Score", ascending=False)
+                
+                # --- MENAMBAHKAN KOLOM JUARA (1, 2, 3...) ---
+                df_res.reset_index(drop=True, inplace=True)
+                df_res.index = df_res.index + 1 # Mulai dari 1
+                
+                # Fungsi Lambda untuk Emoji Juara
+                df_res['🏆 Peringkat'] = df_res.index.map(lambda x: "🥇 JUARA 1" if x==1 else ("🥈 JUARA 2" if x==2 else ("🥉 JUARA 3" if x==3 else f"#{x}")))
+                
+                # Reorder Kolom (Peringkat Paling Kiri)
+                cols = ['🏆 Peringkat', 'Stock', 'Price', 'Chg%', 'STATUS', 'RSI', 'ROE', 'PER']
+                # Hanya ambil kolom yang tersedia (karena mode lain mungkin gak ada ROE/PER)
+                cols = [c for c in cols if c in df_res.columns]
+                
+                st.session_state['scan'] = df_res[cols]
             else: st.warning("Tidak ada saham sesuai kriteria.")
 
     # INTERACTIVE TABLE
@@ -385,9 +393,7 @@ with tab1:
             st.session_state['scan'], 
             column_config={
                 "Chg%": st.column_config.NumberColumn("Chg%", format="%.2f%%"),
-                "STATUS": st.column_config.TextColumn("Rekomendasi", width="medium"),
-                "ROE": st.column_config.TextColumn("Fund. ROE"),
-                "PER": st.column_config.TextColumn("Val. PER")
+                "STATUS": st.column_config.TextColumn("Kualitas Sinyal", width="medium"),
             }, 
             hide_index=True, 
             use_container_width=True,
