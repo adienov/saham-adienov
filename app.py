@@ -11,7 +11,7 @@ st.set_page_config(
     page_title="NOVA QUANTUM",
     page_icon="🦅",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # ==========================================
@@ -86,7 +86,7 @@ def format_large_number(num):
     if num >= 1_000_000: return f"{num/1_000_000:.1f}jt"
     return str(int(num))
 
-# --- WIDGET CHART (DENGAN AUTO FIBONACCI) ---
+# --- WIDGET CHART TRADINGVIEW (COMPACT SIZE) ---
 def render_tv_widget(symbol):
     html_code = f"""
     <div class="tradingview-widget-container">
@@ -96,7 +96,7 @@ def render_tv_widget(symbol):
       new TradingView.widget(
       {{
         "width": "100%",
-        "height": 600,
+        "height": 380, 
         "symbol": "IDX:{symbol}",
         "interval": "D",
         "timezone": "Asia/Jakarta",
@@ -107,20 +107,42 @@ def render_tv_widget(symbol):
         "enable_publishing": false,
         "allow_symbol_change": true,
         "container_id": "tradingview_chart",
-        "studies": [
-          "MASimple@tv-basicstudies",
-          "RSI@tv-basicstudies",
-          "AutoFib@tv-basicstudies" 
-        ],
+        "studies": ["MASimple@tv-basicstudies", "RSI@tv-basicstudies", "AutoFib@tv-basicstudies"],
         "hide_side_toolbar": false
       }}
       );
       </script>
     </div>
     """
-    components.html(html_code, height=610)
+    components.html(html_code, height=390)
 
-# --- FETCH DASHBOARD DATA ---
+# --- HTML TABLE GENERATOR ---
+def render_html_table(df, title, bg_color, text_color, val_col):
+    if df.empty: return ""
+    rows_html = ""
+    for _, row in df.iterrows():
+        val_display = ""
+        if val_col == "Chg":
+            color = "#007f00" if row['Chg'] >= 0 else "#d32f2f"
+            val_display = f"<span style='color:{color}; font-weight:bold;'>{row['Chg']:+.2f}%</span>"
+        elif val_col == "Vol":
+            val_display = format_large_number(row['Vol'])
+        elif val_col == "Val":
+            val_display = format_large_number(row['Val'])
+        rows_html += f"<tr><td style='padding:4px; text-align:center; border-bottom:1px solid #ddd; font-weight:600;'>{row['Stock']}</td><td style='padding:4px; text-align:center; border-bottom:1px solid #ddd;'>{val_display}</td></tr>"
+
+    html_code = f"""
+    <div style='background-color:{bg_color}; border-radius:8px; padding:10px; margin-bottom:10px; border:1px solid {text_color};'>
+        <div style='text-align:center; font-weight:bold; color:{text_color}; font-size:14px; margin-bottom:5px; text-transform:uppercase;'>{title}</div>
+        <table style='width:100%; border-collapse:collapse; font-size:12px; background-color:rgba(255,255,255,0.7); border-radius:5px;'>
+            <thead><tr style='border-bottom:2px solid {text_color};'><th style='padding:5px; text-align:center;'>Emiten</th><th style='padding:5px; text-align:center;'>Nilai</th></tr></thead>
+            <tbody>{rows_html}</tbody>
+        </table>
+    </div>
+    """
+    return html_code
+
+# --- FETCH DATA ---
 @st.cache_data(ttl=300)
 def fetch_dashboard_data():
     try:
@@ -140,8 +162,21 @@ def fetch_dashboard_data():
             "Oil": {"Price": oil['Close'].iloc[-1], "Chg": ((oil['Close'].iloc[-1] - oil['Open'].iloc[-1])/oil['Open'].iloc[-1])*100}
         }
         
-        return ihsg_now, ihsg_chg, usd_now, ma200_ihsg, rsi_ihsg, commo_data
-    except: return None, None, None, None, None, None
+        movers = []
+        for t in IDX_TICKERS:
+            try:
+                tk = yf.Ticker(f"{t}.JK" if ".JK" not in t else t)
+                hist = tk.history(period="2d")
+                if len(hist) >= 2:
+                    close_now = hist['Close'].iloc[-1]
+                    chg = ((close_now - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100
+                    vol = hist['Volume'].iloc[-1]
+                    val = close_now * vol 
+                    movers.append({"Stock": t.replace(".JK",""), "Chg": chg, "Vol": vol, "Val": val})
+            except: pass
+            
+        return ihsg_now, ihsg_chg, usd_now, ma200_ihsg, rsi_ihsg, commo_data, movers
+    except: return None, None, None, None, None, None, []
 
 def generate_outlook_text(price, ma200, rsi):
     if pd.isna(price) or pd.isna(ma200) or pd.isna(rsi): return "Menunggu data teknikal..."
@@ -151,7 +186,7 @@ def generate_outlook_text(price, ma200, rsi):
 
 # --- MAIN UI ---
 def display_market_dashboard():
-    ihsg_now, ihsg_chg, usd_now, ma200, rsi, commo = fetch_dashboard_data()
+    ihsg_now, ihsg_chg, usd_now, ma200, rsi, commo, movers = fetch_dashboard_data()
     if ihsg_now is None: st.error("Gagal memuat data. Cek koneksi."); return
 
     c1, c2 = st.columns([2, 1])
@@ -168,6 +203,21 @@ def display_market_dashboard():
 
     st.write("")
     st.info(f"📢 **OUTLOOK:** {generate_outlook_text(ihsg_now, ma200, rsi)}")
+    st.write("")
+
+    # ROW 3: TABLES
+    df_m = pd.DataFrame(movers)
+    if not df_m.empty:
+        g = df_m.sort_values(by="Chg", ascending=False).head(3)
+        l = df_m.sort_values(by="Chg", ascending=True).head(3)
+        v = df_m.sort_values(by="Vol", ascending=False).head(3)
+        m = df_m.sort_values(by="Val", ascending=False).head(3)
+        c_g, c_l, c_v, c_m = st.columns(4)
+        with c_g: st.markdown(render_html_table(g, "🏆 GAINERS", "#e8f5e9", "#2e7d32", "Chg"), unsafe_allow_html=True)
+        with c_l: st.markdown(render_html_table(l, "🔻 LOSERS", "#ffebee", "#c62828", "Chg"), unsafe_allow_html=True)
+        with c_v: st.markdown(render_html_table(v, "🔥 VOLUME", "#e3f2fd", "#1565c0", "Vol"), unsafe_allow_html=True)
+        with c_m: st.markdown(render_html_table(m, "💰 VALUE", "#fff8e1", "#f9a825", "Val"), unsafe_allow_html=True)
+    else: st.warning("Data market belum tersedia.")
     st.write("")
 
 # --- SIDEBAR & HEADER ---
@@ -187,36 +237,48 @@ display_market_dashboard()
 
 tab1, tab2, tab3 = st.tabs(["🔍 SCREENER & ANALYST", "⚡ EXECUTION", "🔐 PORTFOLIO"])
 
-# --- TAB 1: CHART + SCANNER (INTERACTIVE) ---
+# --- TAB 1: COMPACT LAYOUT (CHART SIDE-BY-SIDE) ---
 with tab1:
-    # 1. KOTAK INPUT (KEMBALI DI ATAS)
-    with st.container(border=True):
-        col_in, col_btn = st.columns([3, 1])
-        with col_in:
-            if 'xray_ticker' not in st.session_state: st.session_state['xray_ticker'] = "BBCA"
-            txt_in = st.text_input("X-Ray Saham (Ketik Kode Manual):", value=st.session_state['xray_ticker']).upper()
-        with col_btn:
-            st.write(""); st.write("")
-            if st.button("🔍 ANALISA CHART", type="primary", use_container_width=True):
-                st.session_state['xray_ticker'] = txt_in
+    # --- ROW 1: CHART (KIRI) & INPUT/INFO (KANAN) ---
+    col_chart, col_info = st.columns([1.6, 1])
+    
+    # KIRI: CHART
+    with col_chart:
+        if 'xray_ticker' not in st.session_state: st.session_state['xray_ticker'] = "BBCA"
+        st.markdown(f"**📈 Chart: {st.session_state['xray_ticker']}** (Auto Fibonacci)")
+        render_tv_widget(st.session_state['xray_ticker']) 
+    
+    # KANAN: INPUT & STATS
+    with col_info:
+        with st.container(border=True):
+            st.markdown("#### 🕵️ X-Ray Saham")
+            c_in, c_btn = st.columns([2, 1])
+            with c_in: 
+                txt_in = st.text_input("Kode Saham:", value=st.session_state['xray_ticker']).upper()
+            with c_btn: 
+                st.write(""); st.write("")
+                if st.button("🔍 Cek", type="primary", use_container_width=True):
+                    st.session_state['xray_ticker'] = txt_in
+            
+            # Info Detail
+            d_s = get_technical_detail(st.session_state['xray_ticker'])
+            if d_s is not None:
+                rsi_safe = int(d_s['RSI']) if pd.notna(d_s['RSI']) else 0
+                st.metric("Harga Terkini", f"Rp {int(d_s['Price']):,}")
+                st.success(f"Trend: {d_s['Trend']}")
+                st.info(f"RSI: {rsi_safe} (Momentum)")
+            else: st.warning("Data loading...")
+            
+            st.divider()
+            st.caption("📖 **Tips Singkat:**")
+            st.caption("- Chart di kiri sudah ada garis Fibonacci otomatis.")
+            st.caption("- Gunakan RSI < 30 untuk mencari area beli (diskon).")
 
-    # 2. CHART SECTION (FULL WIDTH)
-    st.markdown(f"### 📈 Chart: {st.session_state['xray_ticker']}")
-    render_tv_widget(st.session_state['xray_ticker']) # Chart with AutoFib
-    
-    # 3. INFO SECTION (DI BAWAH CHART)
-    d_s = get_technical_detail(st.session_state['xray_ticker'])
-    if d_s is not None:
-        cp = d_s['Price']
-        rsi_disp = str(int(d_s['RSI'])) if pd.notna(d_s['RSI']) else "N/A"
-        ma200_disp = str(int(d_s['MA200'])) if pd.notna(d_s['MA200']) and d_s['MA200'] > 0 else "-"
-        st.info(f"**Data {st.session_state['xray_ticker']}:** Harga Rp {int(cp):,} | Trend: **{d_s['Trend']}** | RSI: {rsi_disp} | MA200: {ma200_disp}")
-    
     st.markdown("---")
     
-    # 4. SCANNER SECTION (INTERACTIVE TABLE)
+    # --- ROW 2: SCANNER (SMART RANKING) ---
     st.header("📡 Radar Market (Scanner)")
-    st.caption("👇 **KLIK PADA BARIS TABEL** untuk melihat Chart Saham tersebut di atas.")
+    st.caption("👇 Klik tabel untuk melihat chart di atas.")
     
     col_rad1, col_rad2 = st.columns([3, 1])
     with col_rad1:
@@ -234,68 +296,70 @@ with tab1:
                 bar.progress((i+1)/len(IDX_TICKERS))
                 df, inf = get_hybrid_data(t)
                 if df is not None:
-                    # Basic Data
                     C = df['Close'].iloc[-1]; C1 = df['Close'].iloc[-2]
                     O = df['Open'].iloc[-1]
                     rsi = ta.rsi(df['Close'], 14).iloc[-1]
                     rsi_val = rsi if pd.notna(rsi) else 50
                     
-                    # Volume Logic
-                    vol_now = df['Volume'].iloc[-1]
-                    vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
-                    v_ratio = vol_now/vol_avg if (pd.notna(vol_avg) and vol_avg > 0) else 0
-                    v_txt = "🔥 RAMAI" if v_ratio > 1.5 else "😐 NORMAL"
+                    # LOGIKA SMART RANKING
+                    rank = "⚪ SILVER" # Default
+                    score = 0
                     
-                    # RSI Logic
-                    if rsi_val < 30: r_txt = "DISKON"
-                    elif rsi_val < 45: r_txt = "MURAH"
-                    elif rsi_val > 70: r_txt = "MAHAL"
-                    else: r_txt = "NETRAL"
-
-                    ok = False
-                    if "Diskon" in mode: ok = True
+                    # 1. Logic Diskon
+                    if "Diskon" in mode:
+                        if rsi_val < 25: rank = "💎 DIAMOND (Super Diskon)"; score=3
+                        elif rsi_val < 30: rank = "✅ GOLD (Diskon)"; score=2
+                        else: score=1
+                    # 2. Logic Reversal
                     elif "Reversal" in mode:
-                        if rsi_val < 45 and C > O: ok = True
+                        if rsi_val < 45 and C > O: 
+                            if df['Volume'].iloc[-1] > df['Volume'].rolling(20).mean().iloc[-1]:
+                                rank = "💎 DIAMOND (Vol Break)"; score=3
+                            else: rank = "✅ GOLD"; score=2
+                    # 3. Logic Breakout
                     elif "Breakout" in mode:
-                        if C == df['High'].rolling(20).max().iloc[-1]: ok = True
+                        if C == df['High'].rolling(20).max().iloc[-1]: 
+                            rank = "💎 DIAMOND (New High)"; score=3
+                    # 4. Logic Swing
                     elif "Swing" in mode:
                         ma50 = df['Close'].rolling(50).mean().iloc[-1]
-                        if pd.notna(ma50) and C > ma50 and C > C1: ok = True
-                    
-                    if ok:
+                        if pd.notna(ma50) and C > ma50: rank = "✅ GOLD"; score=2
+
+                    if score > 0: # Hanya masukkan jika memenuhi kriteria
                         chg = ((C-C1)/C1)*100
                         res.append({
                             "Stock": t.replace(".JK",""), 
                             "Price": int(C), 
                             "Chg%": chg,
-                            "Vol": v_txt,
-                            "RSI": r_txt,
-                            "Signal": mode.split(" ")[0]
+                            "RSI": int(rsi_val),
+                            "STATUS": rank,
+                            "Score": score # Hidden col for sorting
                         })
                         
             bar.empty()
-            if res: st.session_state['scan'] = pd.DataFrame(res)
+            if res: 
+                # Sort by Score (Tertinggi di atas)
+                df_res = pd.DataFrame(res).sort_values(by="Score", ascending=False).drop(columns=["Score"])
+                st.session_state['scan'] = df_res
             else: st.warning("Tidak ada saham sesuai kriteria.")
 
-    # TAMPILKAN TABEL INTERAKTIF
+    # INTERACTIVE TABLE
     if st.session_state.get('scan') is not None:
         event = st.dataframe(
             st.session_state['scan'], 
             column_config={
                 "Chg%": st.column_config.NumberColumn("Chg%", format="%.2f%%"),
-                "Price": st.column_config.NumberColumn("Harga", format="Rp %d")
+                "STATUS": st.column_config.TextColumn("Rekomendasi", width="medium")
             }, 
             hide_index=True, 
             use_container_width=True,
-            on_select="rerun", # WAJIB UNTUK INTERAKTIVITAS
+            on_select="rerun",
             selection_mode="single-row"
         )
         
-        # LOGIC GANTI CHART SAAT KLIK
         if len(event.selection["rows"]) > 0:
             selected_idx = event.selection["rows"][0]
             selected_ticker = st.session_state['scan'].iloc[selected_idx]['Stock']
-            # Cek agar tidak looping rerun
             if st.session_state['xray_ticker'] != selected_ticker:
                 st.session_state['xray_ticker'] = selected_ticker
                 st.rerun()
