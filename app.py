@@ -268,19 +268,26 @@ with tab1:
             else: st.warning("Data loading...")
             
             st.divider()
-            st.caption("📖 **Tips:** Chart di kiri otomatis menarik garis Fibonacci. Gunakan RSI < 30 untuk area beli.")
+            st.caption("📖 **Tips:** Gunakan RSI < 30 untuk area beli (diskon).")
 
     st.markdown("---")
     
-    # --- ROW 2: SCANNER (SMART RANKING & FAST TRADE) ---
+    # --- ROW 2: SCANNER (ULTIMATE HYBRID) ---
     st.header("📡 Radar Market (Scanner)")
-    st.caption("👇 Klik tabel untuk melihat chart di atas.")
     
     col_rad1, col_rad2 = st.columns([3, 1])
     with col_rad1:
-        if 'mode' not in st.session_state: st.session_state['mode'] = "Radar Diskon (Market Crash)"
-        # MENAMBAHKAN OPSI "Volatilitas Tinggi"
-        mode = st.radio("Strategi:", ["Radar Diskon (Market Crash)", "Reversal (Pantulan)", "Breakout (Tren Naik)", "Swing (Koreksi Sehat)", "🚀 Volatilitas Tinggi (Fast Trade)"], horizontal=True)
+        if 'mode' not in st.session_state: st.session_state['mode'] = "💎 SUPER SCREENER (Fundamental + Smart Money)"
+        
+        # MENU STRATEGI DIPERLENGKAP
+        mode = st.radio("Strategi:", [
+            "💎 SUPER SCREENER (Fundamental + Smart Money)",
+            "🚀 Volatilitas Tinggi (Fast Trade)",
+            "📉 Radar Diskon (Market Crash)", 
+            "📈 Breakout (Tren Naik)", 
+            "🔄 Swing (Koreksi Sehat)"
+        ], horizontal=True)
+        
         if mode != st.session_state['mode']:
             st.session_state['scan'] = None; st.session_state['mode'] = mode; st.rerun()
     
@@ -299,41 +306,60 @@ with tab1:
                     rsi = ta.rsi(df['Close'], 14).iloc[-1]
                     rsi_val = rsi if pd.notna(rsi) else 50
                     
-                    # LOGIKA SMART RANKING
-                    rank = "⚪ SILVER" 
+                    # --- VARIABEL PENTING ---
+                    # 1. Fundamental
+                    roe = inf.get('returnOnEquity', 0) * 100 if inf else 0
+                    per = inf.get('trailingPE', 999) if inf else 999
+                    
+                    # 2. Volume
+                    vol_now = df['Volume'].iloc[-1]
+                    vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
+                    is_spike = (pd.notna(vol_avg) and vol_now > vol_avg * 1.5)
+                    
+                    # 3. Trend
+                    ma50 = df['Close'].rolling(50).mean().iloc[-1]
+                    is_uptrend = (pd.notna(ma50) and C > ma50)
+
+                    # --- LOGIKA SCORING ROBOT ---
                     score = 0
+                    rank_msg = "⚪ NEUTRAL"
                     
-                    # 1. Logic Diskon
-                    if "Diskon" in mode:
-                        if rsi_val < 25: rank = "💎 DIAMOND (Super Diskon)"; score=3
-                        elif rsi_val < 30: rank = "✅ GOLD (Diskon)"; score=2
-                        elif rsi_val < 35: score=1
-                    
-                    # 2. Logic Reversal
-                    elif "Reversal" in mode:
-                        if rsi_val < 45 and C > O: 
-                            if df['Volume'].iloc[-1] > df['Volume'].rolling(20).mean().iloc[-1]:
-                                rank = "💎 DIAMOND (Vol Break)"; score=3
-                            else: rank = "✅ GOLD"; score=2
-                    
-                    # 3. Logic Breakout
-                    elif "Breakout" in mode:
-                        if C == df['High'].rolling(20).max().iloc[-1]: 
-                            rank = "💎 DIAMOND (New High)"; score=3
-                    
-                    # 4. Logic Swing
-                    elif "Swing" in mode:
-                        ma50 = df['Close'].rolling(50).mean().iloc[-1]
-                        if pd.notna(ma50) and C > ma50: rank = "✅ GOLD"; score=2
+                    # === MODE 1: SUPER SCREENER (HYBRID) ===
+                    if "SUPER" in mode:
+                        # Syarat Fundamental (Wajib Bagus/Murah)
+                        if roe > 10: score += 1
+                        if per < 20: score += 1
                         
-                    # 5. Logic FAST TRADE (BARU)
+                        # Syarat Teknikal (Diskon atau Breakout)
+                        if rsi_val < 45: score += 1 # Diskon
+                        if is_uptrend: score += 1   # Trend Aman
+                        if is_spike: score += 2     # Ada Smart Money Masuk (Bobot Tinggi)
+                        
+                        # Penentuan Rank
+                        if score >= 5: rank_msg = "💎 DIAMOND (Strong Buy)"
+                        elif score >= 4: rank_msg = "✅ GOLD (Accumulate)"
+                        elif score >= 3: rank_msg = "⚡ SILVER (Speculative)"
+                        
+                        # Filter Tampil: Hanya skor 3 ke atas
+                        if score < 3: score = 0 
+
+                    # === MODE 2: FAST TRADE (VOLATILITAS) ===
                     elif "Volatilitas" in mode:
                         daily_range = ((H - L) / L) * 100
-                        if daily_range > 2.0: # Minimal gerak 2%
-                            if daily_range > 4.0: rank = "💎 DIAMOND (Liar >4%)"; score=3
-                            elif daily_range > 3.0: rank = "✅ GOLD (Aktif >3%)"; score=2
-                            else: rank = "⚡ SILVER (Gerak >2%)"; score=1
+                        if daily_range > 2.0:
+                            score = daily_range # Skor berdasarkan lebar range
+                            if daily_range > 4.0: rank_msg = "💎 LIAR (>4%)"
+                            elif daily_range > 3.0: rank_msg = "✅ AKTIF (>3%)"
+                            else: rank_msg = "⚡ GERAK (>2%)"
+                        else: score = 0
 
+                    # === MODE LAIN (STANDAR) ===
+                    elif "Diskon" in mode and rsi_val < 35: score = 50 - rsi_val; rank_msg = "🟢 DISKON"
+                    elif "Reversal" in mode and rsi_val < 45 and C > O: score = 1; rank_msg = "↗️ PANTULAN"
+                    elif "Breakout" in mode and C >= df['High'].rolling(20).max().iloc[-1]: score = 5; rank_msg = "🚀 BREAKOUT"
+                    elif "Swing" in mode and is_uptrend and C > C1: score = 2; rank_msg = "🔄 SWING"
+
+                    # APPEND HASIL JIKA LOLOS
                     if score > 0: 
                         chg = ((C-C1)/C1)*100
                         res.append({
@@ -341,7 +367,9 @@ with tab1:
                             "Price": int(C), 
                             "Chg%": chg,
                             "RSI": int(rsi_val),
-                            "STATUS": rank,
+                            "ROE": f"{roe:.1f}%", # Tampilkan ROE
+                            "PER": f"{per:.1f}x", # Tampilkan PER
+                            "STATUS": rank_msg,
                             "Score": score
                         })
                         
@@ -357,7 +385,9 @@ with tab1:
             st.session_state['scan'], 
             column_config={
                 "Chg%": st.column_config.NumberColumn("Chg%", format="%.2f%%"),
-                "STATUS": st.column_config.TextColumn("Rekomendasi", width="medium")
+                "STATUS": st.column_config.TextColumn("Rekomendasi", width="medium"),
+                "ROE": st.column_config.TextColumn("Fund. ROE"),
+                "PER": st.column_config.TextColumn("Val. PER")
             }, 
             hide_index=True, 
             use_container_width=True,
