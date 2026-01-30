@@ -58,29 +58,28 @@ def get_technical_detail(ticker):
         high_p = int(df['High'].iloc[-1])
         low_p = int(df['Low'].iloc[-1])
         
-        # 1. Hitung Persentase Change
         chg_pct = ((close - prev_close) / prev_close) * 100
         avg_p = int((high_p + low_p + close) / 3)
 
-        # 2. ANALISA BENTUK CANDLE (Candle Reader Logic)
+        # ANALISA CANDLE
         body = abs(close - open_p)
         total_range = high_p - low_p
         upper_shadow = high_p - max(close, open_p)
         lower_shadow = min(close, open_p) - low_p
         
-        candle_status = "⚪ Neutral" # Default
+        candle_status = "⚪ Neutral" 
         
         if total_range > 0:
-            if close > open_p: # Hijau
-                if body > 0.8 * total_range: candle_status = "🟢 Bullish Marubozu (Strong)"
+            if close > open_p: 
+                if body > 0.8 * total_range: candle_status = "🟢 Bullish Marubozu"
                 elif lower_shadow > 2 * body: candle_status = "🔨 Hammer (Reversal?)"
                 else: candle_status = "🟢 Bullish Candle"
-            elif close < open_p: # Merah
-                if body > 0.8 * total_range: candle_status = "🔴 Bearish Marubozu (Weak)"
-                elif upper_shadow > 2 * body: candle_status = "☄️ Shooting Star (Drop?)"
+            elif close < open_p: 
+                if body > 0.8 * total_range: candle_status = "🔴 Bearish Marubozu"
+                elif upper_shadow > 2 * body: candle_status = "☄️ Shooting Star"
                 else: candle_status = "🔴 Bearish Candle"
             elif body <= 0.1 * total_range:
-                candle_status = "➕ Doji (Bingung)"
+                candle_status = "➕ Doji"
 
         # Indikator
         ma20 = int(df['Close'].rolling(20).mean().iloc[-1] if pd.notna(df['Close'].rolling(20).mean().iloc[-1]) else 0)
@@ -113,8 +112,28 @@ def format_large_number(num):
     if num >= 1_000_000: return f"{num/1_000_000:.1f}jt"
     return str(int(num))
 
-# --- WIDGET CHART ---
-def render_tv_widget(symbol):
+# --- WIDGET CHART (DYNAMIC VERSION) ---
+def render_tv_widget(symbol, mode):
+    # Logika Pemilihan Indikator Chart berdasarkan Strategi
+    studies_list = []
+    chart_desc = ""
+    
+    if "Contrarian" in mode or "Volatilitas" in mode:
+        # Butuh Bollinger Bands + RSI
+        studies_list = ["BB@tv-basicstudies", "RSI@tv-basicstudies"]
+        chart_desc = "(Bollinger Bands + RSI)"
+    elif "Swing" in mode:
+        # Butuh MA + Stochastic
+        studies_list = ["MASimple@tv-basicstudies", "MASimple@tv-basicstudies", "Stochastic@tv-basicstudies"]
+        chart_desc = "(Multi MA + Stochastic)"
+    else:
+        # Default (Super/Golden Cross/Turtle/Akumulasi) -> MA + MACD
+        studies_list = ["MASimple@tv-basicstudies", "MASimple@tv-basicstudies", "MACD@tv-basicstudies"]
+        chart_desc = "(Moving Average + MACD)"
+
+    # Convert list to Javascript string format
+    studies_js = str(studies_list).replace("'", '"')
+
     html_code = f"""
     <div class="tradingview-widget-container">
       <div id="tradingview_chart"></div>
@@ -123,7 +142,7 @@ def render_tv_widget(symbol):
       new TradingView.widget(
       {{
         "width": "100%",
-        "height": 380, 
+        "height": 400, 
         "symbol": "IDX:{symbol}",
         "interval": "D",
         "timezone": "Asia/Jakarta",
@@ -134,14 +153,15 @@ def render_tv_widget(symbol):
         "enable_publishing": false,
         "allow_symbol_change": true,
         "container_id": "tradingview_chart",
-        "studies": ["BB@tv-basicstudies", "RSI@tv-basicstudies", "MACD@tv-basicstudies"],
+        "studies": {studies_js},
         "hide_side_toolbar": false
       }}
       );
       </script>
     </div>
     """
-    components.html(html_code, height=390)
+    st.markdown(f"**📈 Chart: {symbol}** {chart_desc}")
+    components.html(html_code, height=410)
 
 # --- HTML TABLE GENERATOR ---
 def render_html_table(df, title, bg_color, text_color, val_col):
@@ -285,32 +305,31 @@ tab1, tab2, tab3 = st.tabs(["🔍 SCREENER & ANALYST", "⚡ EXECUTION (CALCULATO
 with tab1:
     col_chart, col_info = st.columns([1.6, 1])
     
+    # Ambil Mode Strategi dari Session State (jika belum ada default ke Super)
+    current_mode = st.session_state.get('mode', "💎 SUPER SCREENER (Fundamental + Smart Money)")
+
     with col_chart:
         if 'xray_ticker' not in st.session_state: st.session_state['xray_ticker'] = "BBCA"
-        st.markdown(f"**📈 Chart: {st.session_state['xray_ticker']}** (Bollinger + RSI + MACD)")
-        render_tv_widget(st.session_state['xray_ticker']) 
+        # CALL RENDER WIDGET DENGAN PARAMETER MODE
+        render_tv_widget(st.session_state['xray_ticker'], current_mode) 
     
     with col_info:
         with st.container(border=True):
             st.markdown("#### 🕵️ X-Ray Saham")
             c_in, c_btn = st.columns([2, 1])
             with c_in: 
-                # === REVISI AUTO SYNC (INPUT & ENTER) ===
                 new_ticker = st.text_input("Kode Saham:", value=st.session_state['xray_ticker']).upper()
             with c_btn: 
                 st.write(""); st.write("")
                 btn_cek = st.button("🔍 Cek", type="primary", use_container_width=True)
             
-            # Logic Sync: Jika tombol ditekan ATAU input berubah (Enter)
             if btn_cek or (new_ticker != st.session_state['xray_ticker']):
                 st.session_state['xray_ticker'] = new_ticker
-                st.rerun() # Refresh halaman agar Chart berubah
+                st.rerun() 
             
             d_s = get_technical_detail(st.session_state['xray_ticker'])
             if d_s is not None:
                 rsi_safe = int(d_s['RSI']) if pd.notna(d_s['RSI']) else 0
-                
-                # Menampilkan Harga dengan Warna Persentase
                 col_pct = "green" if d_s['Chg'] >= 0 else "red"
                 st.markdown(f"""
                 <div style="font-size: 24px; font-weight: bold;">
