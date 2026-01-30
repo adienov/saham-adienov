@@ -51,14 +51,39 @@ def get_technical_detail(ticker):
         df = t.history(period="2y")
         if len(df) < 20: return None
         
-        # DATA UTAMA (Close, Open, Low, High)
+        # OHLC Data
         close = int(df['Close'].iloc[-1])
+        prev_close = int(df['Close'].iloc[-2])
         open_p = int(df['Open'].iloc[-1])
         high_p = int(df['High'].iloc[-1])
         low_p = int(df['Low'].iloc[-1])
         
-        # Hitung Average Price (Typical Price)
+        # 1. Hitung Persentase Change
+        chg_pct = ((close - prev_close) / prev_close) * 100
         avg_p = int((high_p + low_p + close) / 3)
+
+        # 2. ANALISA BENTUK CANDLE (Candle Reader Logic)
+        body = abs(close - open_p)
+        total_range = high_p - low_p
+        upper_shadow = high_p - max(close, open_p)
+        lower_shadow = min(close, open_p) - low_p
+        
+        candle_status = "⚪ Neutral (Doji/Spinning)" # Default
+        
+        if total_range > 0:
+            # Bullish Candles
+            if close > open_p:
+                if body > 0.8 * total_range: candle_status = "🟢 Bullish Marubozu (Strong Buy)"
+                elif lower_shadow > 2 * body: candle_status = "🔨 Hammer (Reversal Potential)"
+                else: candle_status = "🟢 Bullish Candle"
+            # Bearish Candles
+            elif close < open_p:
+                if body > 0.8 * total_range: candle_status = "🔴 Bearish Marubozu (Strong Sell)"
+                elif upper_shadow > 2 * body: candle_status = "☄️ Shooting Star (Reversal Potential)"
+                else: candle_status = "🔴 Bearish Candle"
+            # Doji
+            elif body <= 0.1 * total_range:
+                candle_status = "➕ Doji (Market Indecision)"
 
         # Indikator
         ma20 = int(df['Close'].rolling(20).mean().iloc[-1] if pd.notna(df['Close'].rolling(20).mean().iloc[-1]) else 0)
@@ -73,8 +98,9 @@ def get_technical_detail(ticker):
         
         return {
             "Stock": ticker.replace(".JK",""), 
-            "Price": close, "Open": open_p, "Low": low_p, "High": high_p, "Avg": avg_p,
-            "Trend": trend, "RSI": rsi, "MA200": ma200
+            "Price": close, "Chg": chg_pct,
+            "Open": open_p, "Low": low_p, "High": high_p, "Avg": avg_p,
+            "Trend": trend, "RSI": rsi, "MA200": ma200, "Candle": candle_status
         }
     except: return None
 
@@ -281,10 +307,13 @@ with tab1:
             d_s = get_technical_detail(st.session_state['xray_ticker'])
             if d_s is not None:
                 rsi_safe = int(d_s['RSI']) if pd.notna(d_s['RSI']) else 0
-                st.metric("Harga Terkini (Close)", f"Rp {int(d_s['Price']):,}")
-                st.success(f"{d_s['Trend']}")
+                st.metric("Harga Terkini (Close)", f"Rp {int(d_s['Price']):,}", f"{d_s['Chg']:+.2f}%")
                 
-                # --- NEW GRID LAYOUT FOR OPEN/LOW/HIGH/AVG ---
+                # --- NEW CANDLE STATUS DISPLAY ---
+                st.success(f"{d_s['Trend']}")
+                st.markdown(f"🕯️ **Candle:** {d_s['Candle']}")
+                
+                # --- GRID LAYOUT ---
                 r1, r2 = st.columns(2)
                 with r1:
                     st.write(f"🔹 **Open:** {int(d_s['Open']):,}")
@@ -292,7 +321,6 @@ with tab1:
                 with r2:
                     st.write(f"🔺 **High:** {int(d_s['High']):,}")
                     st.write(f"⚖️ **Avg:** {int(d_s['Avg']):,}")
-                # ---------------------------------------------
                 
                 st.info(f"RSI: {rsi_safe} | MA200: {int(d_s['MA200']):,}")
             else: st.warning("Data loading...")
