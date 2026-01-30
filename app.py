@@ -112,28 +112,24 @@ def format_large_number(num):
     if num >= 1_000_000: return f"{num/1_000_000:.1f}jt"
     return str(int(num))
 
-# --- WIDGET CHART (DYNAMIC VERSION) ---
+# --- WIDGET CHART (HEIGHT INCREASED TO 580px) ---
 def render_tv_widget(symbol, mode):
-    # Logika Pemilihan Indikator Chart berdasarkan Strategi
     studies_list = []
     chart_desc = ""
     
     if "Contrarian" in mode or "Volatilitas" in mode:
-        # Butuh Bollinger Bands + RSI
         studies_list = ["BB@tv-basicstudies", "RSI@tv-basicstudies"]
         chart_desc = "(Bollinger Bands + RSI)"
     elif "Swing" in mode:
-        # Butuh MA + Stochastic
         studies_list = ["MASimple@tv-basicstudies", "MASimple@tv-basicstudies", "Stochastic@tv-basicstudies"]
         chart_desc = "(Multi MA + Stochastic)"
     else:
-        # Default (Super/Golden Cross/Turtle/Akumulasi) -> MA + MACD
         studies_list = ["MASimple@tv-basicstudies", "MASimple@tv-basicstudies", "MACD@tv-basicstudies"]
         chart_desc = "(Moving Average + MACD)"
 
-    # Convert list to Javascript string format
     studies_js = str(studies_list).replace("'", '"')
 
+    # TINGGI CHART DIUBAH KE 580 (BIAR SEJAJAR X-RAY)
     html_code = f"""
     <div class="tradingview-widget-container">
       <div id="tradingview_chart"></div>
@@ -142,7 +138,7 @@ def render_tv_widget(symbol, mode):
       new TradingView.widget(
       {{
         "width": "100%",
-        "height": 400, 
+        "height": 580, 
         "symbol": "IDX:{symbol}",
         "interval": "D",
         "timezone": "Asia/Jakarta",
@@ -161,7 +157,7 @@ def render_tv_widget(symbol, mode):
     </div>
     """
     st.markdown(f"**📈 Chart: {symbol}** {chart_desc}")
-    components.html(html_code, height=410)
+    components.html(html_code, height=590) # Height Container sedikit lebih besar
 
 # --- HTML TABLE GENERATOR ---
 def render_html_table(df, title, bg_color, text_color, val_col):
@@ -305,12 +301,10 @@ tab1, tab2, tab3 = st.tabs(["🔍 SCREENER & ANALYST", "⚡ EXECUTION (CALCULATO
 with tab1:
     col_chart, col_info = st.columns([1.6, 1])
     
-    # Ambil Mode Strategi dari Session State (jika belum ada default ke Super)
     current_mode = st.session_state.get('mode', "💎 SUPER SCREENER (Fundamental + Smart Money)")
 
     with col_chart:
         if 'xray_ticker' not in st.session_state: st.session_state['xray_ticker'] = "BBCA"
-        # CALL RENDER WIDGET DENGAN PARAMETER MODE
         render_tv_widget(st.session_state['xray_ticker'], current_mode) 
     
     with col_info:
