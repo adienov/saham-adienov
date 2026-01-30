@@ -51,21 +51,21 @@ def get_technical_detail(ticker):
         df = t.history(period="2y")
         if len(df) < 20: return None
         close = int(df['Close'].iloc[-1])
-        
-        # Hitung Trio MA
-        ma20 = int(df['Close'].rolling(20).mean().iloc[-1] if pd.notna(df['Close'].rolling(20).mean().iloc[-1]) else 0)
         ma50 = int(df['Close'].rolling(50).mean().iloc[-1] if pd.notna(df['Close'].rolling(50).mean().iloc[-1]) else 0)
         ma200 = int(df['Close'].rolling(200).mean().iloc[-1] if pd.notna(df['Close'].rolling(200).mean().iloc[-1]) else 0)
         rsi = ta.rsi(df['Close'], length=14).iloc[-1]
         
+        # Bollinger Bands
+        std = df['Close'].rolling(20).std().iloc[-1]
+        ma20 = df['Close'].rolling(20).mean().iloc[-1]
+        lower_bb = ma20 - (2 * std)
+        
         trend = "➡️ Sideways"
         if ma200 > 0:
-            if close > ma200: 
-                if close > ma50: trend = "🚀 Strong Uptrend"
-                else: trend = "✅ Uptrend (Koreksi)"
+            if close > ma200: trend = "🚀 Uptrend"
             else: trend = "📉 Downtrend"
         
-        return {"Stock": ticker.replace(".JK",""), "Price": close, "Trend": trend, "RSI": rsi, "MA20": ma20, "MA50": ma50, "MA200": ma200}
+        return {"Stock": ticker.replace(".JK",""), "Price": close, "Trend": trend, "RSI": rsi, "MA200": ma200}
     except: return None
 
 def get_porto_analysis(ticker, entry_price):
@@ -91,7 +91,7 @@ def format_large_number(num):
     if num >= 1_000_000: return f"{num/1_000_000:.1f}jt"
     return str(int(num))
 
-# --- WIDGET CHART (SWING SPECIALIST: 3 MA + STOCHASTIC) ---
+# --- WIDGET CHART ---
 def render_tv_widget(symbol):
     html_code = f"""
     <div class="tradingview-widget-container">
@@ -101,7 +101,7 @@ def render_tv_widget(symbol):
       new TradingView.widget(
       {{
         "width": "100%",
-        "height": 400, 
+        "height": 380, 
         "symbol": "IDX:{symbol}",
         "interval": "D",
         "timezone": "Asia/Jakarta",
@@ -112,19 +112,14 @@ def render_tv_widget(symbol):
         "enable_publishing": false,
         "allow_symbol_change": true,
         "container_id": "tradingview_chart",
-        "studies": [
-            "MASimple@tv-basicstudies", // MA 1 (Akan default, user bisa set di chart)
-            "MASimple@tv-basicstudies", // MA 2
-            "MASimple@tv-basicstudies", // MA 3
-            "Stochastic@tv-basicstudies" // Timing Swing
-        ],
+        "studies": ["BB@tv-basicstudies", "RSI@tv-basicstudies", "MACD@tv-basicstudies"],
         "hide_side_toolbar": false
       }}
       );
       </script>
     </div>
     """
-    components.html(html_code, height=410)
+    components.html(html_code, height=390)
 
 # --- HTML TABLE GENERATOR ---
 def render_html_table(df, title, bg_color, text_color, val_col):
@@ -254,7 +249,7 @@ with tab1:
     # KIRI: CHART
     with col_chart:
         if 'xray_ticker' not in st.session_state: st.session_state['xray_ticker'] = "BBCA"
-        st.markdown(f"**📈 Chart: {st.session_state['xray_ticker']}** (Swing Mode: 3 MA + Stochastic)")
+        st.markdown(f"**📈 Chart: {st.session_state['xray_ticker']}** (Bollinger + RSI + MACD)")
         render_tv_widget(st.session_state['xray_ticker']) 
     
     # KANAN: INPUT & STATS
@@ -274,15 +269,11 @@ with tab1:
                 rsi_safe = int(d_s['RSI']) if pd.notna(d_s['RSI']) else 0
                 st.metric("Harga Terkini", f"Rp {int(d_s['Price']):,}")
                 st.success(f"{d_s['Trend']}")
-                st.markdown(f"""
-                * **MA 20 (Merah):** {int(d_s['MA20']):,} (Support Swing)
-                * **MA 50 (Biru):** {int(d_s['MA50']):,} (Trend Menengah)
-                * **MA 200 (Hitam):** {int(d_s['MA200']):,} (Trend Besar)
-                """)
+                st.info(f"RSI: {rsi_safe} | MA200: {int(d_s['MA200'])}")
             else: st.warning("Data loading...")
             
             st.divider()
-            st.caption("🔄 **TEKNIK SWING:** Pastikan Harga > MA200 & > MA50. Beli saat harga koreksi mendekati MA20.")
+            st.caption("🛡️ **FUNDAMENTAL SHIELD:** Cek kolom 'Kualitas' & 'Valuasi' di bawah sebelum membeli.")
 
     st.markdown("---")
     
@@ -320,7 +311,7 @@ with tab1:
                     rsi = ta.rsi(df['Close'], 14).iloc[-1]
                     rsi_val = rsi if pd.notna(rsi) else 50
                     
-                    # FUNDAMENTAL & VALUATION
+                    # --- FUNDAMENTAL SHIELD ---
                     roe = inf.get('returnOnEquity', 0) * 100 if inf else 0
                     per = inf.get('trailingPE', 999) if inf else 999
                     pbv = inf.get('priceToBook', 999) if inf else 999
@@ -333,7 +324,7 @@ with tab1:
                     elif per < 25: val_stat = "🟡 WAJAR"
                     else: val_stat = "🔴 MAHAL"
 
-                    # TECHNICAL
+                    # --- TEKNIKAL VARIABLES ---
                     vol_now = df['Volume'].iloc[-1]
                     vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
                     is_spike = (pd.notna(vol_avg) and vol_now > vol_avg * 1.25)
@@ -345,7 +336,7 @@ with tab1:
                     lower_bb = ma20 - (2 * std)
                     high_20 = df['High'].rolling(20).max().iloc[-1]
 
-                    # SCORING LOGIC
+                    # --- LOGIKA SCORING ROBOT ---
                     score = 0
                     rank_msg = "⚪ NEUTRAL"
                     
@@ -405,6 +396,12 @@ with tab1:
                             elif daily_range > 3.0: rank_msg = "⚡ AKTIF"
                             else: score = 1; rank_msg = "⚪ GERAK"
 
+                    elif "Turtle" in mode:
+                        if C >= high_20:
+                            score = 2; rank_msg = "✅ BREAKOUT 20D"
+                            if is_spike: score = 3; rank_msg = "💎 STRONG BREAK"
+                        elif C >= (high_20 * 0.98): score = 1; rank_msg = "⚡ NEAR HIGH"
+
                     if score > 0: 
                         chg = ((C-C1)/C1)*100
                         res.append({
@@ -427,6 +424,17 @@ with tab1:
                 
                 cols = ['🏆 Peringkat', 'Stock', 'Price', 'Chg%', 'STATUS', 'Funda', 'Valuasi']
                 st.session_state['scan'] = df_res[cols]
+                
+                # --- TOMBOL DOWNLOAD CSV (FITUR BARU) ---
+                csv = df_res.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Download Laporan (Excel/CSV)",
+                    data=csv,
+                    file_name=f'laporan_saham_{mode.split(" ")[0]}_{datetime.now().strftime("%Y%m%d")}.csv',
+                    mime='text/csv',
+                    type='secondary'
+                )
+                
             else: st.warning("Tidak ada saham sesuai kriteria.")
 
     # INTERACTIVE TABLE
