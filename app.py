@@ -132,14 +132,14 @@ def render_html_table(df, title, bg_color, text_color, val_col):
     """
     return html_code
 
-# --- FETCH DASHBOARD ---
+# --- FETCH DASHBOARD (FIXED ROBUSTNESS) ---
 @st.cache_data(ttl=300)
 def fetch_dashboard_data():
     try:
-        ihsg = yf.Ticker("^JKSE").history(period="2y") 
+        ihsg = yf.Ticker("^JKSE").history(period="5d") 
         usd = yf.Ticker("IDR=X").history(period="1d")
-        gold = yf.Ticker("GC=F").history(period="1d")
-        oil = yf.Ticker("CL=F").history(period="1d")
+        gold = yf.Ticker("GC=F").history(period="5d") # AMBIL 5 HARI UNTUK SAFETY
+        oil = yf.Ticker("CL=F").history(period="5d")
 
         ihsg_now = ihsg['Close'].iloc[-1]
         ihsg_chg = ((ihsg_now - ihsg['Close'].iloc[-2]) / ihsg['Close'].iloc[-2]) * 100
@@ -147,9 +147,23 @@ def fetch_dashboard_data():
         ma200_ihsg = ihsg['Close'].rolling(200).mean().iloc[-1]
         rsi_ihsg = ta.rsi(ihsg['Close'], length=14).iloc[-1]
         
+        # LOGIKA PERHITUNGAN EMAS & MINYAK YANG LEBIH KUAT
+        def get_change(df):
+            if len(df) >= 2:
+                # Jika data > 1 hari, bandingkan Close hari ini vs Close Kemarin
+                return df['Close'].iloc[-1], ((df['Close'].iloc[-1] - df['Close'].iloc[-2])/df['Close'].iloc[-2])*100
+            elif len(df) == 1:
+                # Jika cuma ada data hari ini, bandingkan Close vs Open
+                return df['Close'].iloc[-1], ((df['Close'].iloc[-1] - df['Open'].iloc[-1])/df['Open'].iloc[-1])*100
+            else:
+                return 0, 0
+
+        gold_p, gold_c = get_change(gold)
+        oil_p, oil_c = get_change(oil)
+
         commo_data = {
-            "Gold": {"Price": gold['Close'].iloc[-1], "Chg": ((gold['Close'].iloc[-1] - gold['Open'].iloc[-1])/gold['Open'].iloc[-1])*100},
-            "Oil": {"Price": oil['Close'].iloc[-1], "Chg": ((oil['Close'].iloc[-1] - oil['Open'].iloc[-1])/oil['Open'].iloc[-1])*100}
+            "Gold": {"Price": gold_p, "Chg": gold_c},
+            "Oil": {"Price": oil_p, "Chg": oil_c}
         }
         
         movers = []
@@ -186,10 +200,7 @@ def display_market_dashboard():
     # ROW 1: METRICS
     k1, k2, k3, k4 = st.columns(4)
     
-    # Warna IHSG
     col_ihsg = "#d32f2f" if ihsg_chg < 0 else "#388e3c"
-    
-    # Warna Gold & Oil
     col_gold = "#d32f2f" if commo['Gold']['Chg'] < 0 else "#388e3c"
     col_oil = "#d32f2f" if commo['Oil']['Chg'] < 0 else "#388e3c"
 
