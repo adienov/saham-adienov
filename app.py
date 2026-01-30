@@ -277,7 +277,7 @@ with tab1:
 
     st.markdown("---")
     
-    # --- ROW 2: SCANNER (FUNDAMENTAL INTEGRATED) ---
+    # --- ROW 2: SCANNER (ALL STRATEGIES) ---
     st.header("📡 Radar Market (Scanner)")
     
     col_rad1, col_rad2 = st.columns([3, 1])
@@ -286,11 +286,11 @@ with tab1:
         
         mode = st.radio("Strategi:", [
             "💎 SUPER SCREENER (Fundamental + Smart Money)",
-            "🦈 Contrarian Sniper (Catch the Falling Knife)", 
+            "🔄 Swing (Buy on Weakness)", # MODE SWING BARU
+            "🦈 Contrarian Sniper (Pisau Jatuh)", 
             "🌟 Golden Cross (Trend Awal)", 
-            "🐋 Deteksi Akumulasi Bandar (Smart Money)",
-            "🐢 Turtle Breakout (Trend Follower)",
-            "🚀 Volatilitas Tinggi (Fast Trade)"
+            "🐋 Deteksi Akumulasi Bandar",
+            "🚀 Volatilitas Tinggi (Copet)"
         ], horizontal=True)
         
         if mode != st.session_state['mode']:
@@ -311,30 +311,28 @@ with tab1:
                     rsi = ta.rsi(df['Close'], 14).iloc[-1]
                     rsi_val = rsi if pd.notna(rsi) else 50
                     
-                    # --- VARIABEL FUNDAMENTAL (FOR SHIELD) ---
+                    # --- FUNDAMENTAL SHIELD ---
                     roe = inf.get('returnOnEquity', 0) * 100 if inf else 0
                     per = inf.get('trailingPE', 999) if inf else 999
                     pbv = inf.get('priceToBook', 999) if inf else 999
                     
-                    # STATUS FUNDAMENTAL
                     if roe > 10: funda_stat = "🟢 PRIME"
                     elif roe > 0: funda_stat = "🟡 STD"
                     else: funda_stat = "🔴 JUNK"
                     
-                    # STATUS VALUASI
                     if per < 15 or pbv < 1: val_stat = "🟢 MURAH"
                     elif per < 25: val_stat = "🟡 WAJAR"
                     else: val_stat = "🔴 MAHAL"
 
-                    # --- VARIABEL TEKNIKAL ---
+                    # --- TEKNIKAL VARIABLES ---
                     vol_now = df['Volume'].iloc[-1]
                     vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
                     is_spike = (pd.notna(vol_avg) and vol_now > vol_avg * 1.25)
                     
+                    ma20 = df['Close'].rolling(20).mean().iloc[-1]
                     ma50 = df['Close'].rolling(50).mean().iloc[-1]
                     ma200 = df['Close'].rolling(200).mean().iloc[-1]
                     std = df['Close'].rolling(20).std().iloc[-1]
-                    ma20 = df['Close'].rolling(20).mean().iloc[-1]
                     lower_bb = ma20 - (2 * std)
                     high_20 = df['High'].rolling(20).max().iloc[-1]
 
@@ -342,7 +340,19 @@ with tab1:
                     score = 0
                     rank_msg = "⚪ NEUTRAL"
                     
-                    if "Contrarian" in mode: 
+                    if "Swing" in mode: # LOGIKA SWING TRADING
+                        # Syarat Wajib: UPTREND (Harga di atas MA50)
+                        if pd.notna(ma50) and C > ma50:
+                            # Cari Koreksi (RSI tidak Overbought)
+                            if rsi_val < 60:
+                                score = 2; rank_msg = "✅ BUY WEAKNESS"
+                                # Sempurna: Mantul di MA20 atau ada Volume
+                                if abs(C - ma20)/ma20 < 0.02 or is_spike:
+                                    score = 3; rank_msg = "💎 PERFECT SWING"
+                            else: score = 1; rank_msg = "⚡ EARLY TREND"
+                        else: score = 0
+
+                    elif "Contrarian" in mode: 
                         if C < lower_bb:
                             score = 2; rank_msg = "✅ OVERSOLD"
                             if rsi_val < 30:
@@ -380,12 +390,6 @@ with tab1:
                                 if vol_now > vol_avg * 2.0: score = 3; rank_msg = "💎 WHALE"
                             elif C > O: score = 1; rank_msg = "⚡ VOL FLOW"
 
-                    elif "Turtle" in mode: 
-                        if C >= high_20:
-                            score = 2; rank_msg = "✅ BREAKOUT"
-                            if is_spike: score = 3; rank_msg = "💎 STRONG"
-                        elif C >= (high_20 * 0.98): score = 1; rank_msg = "⚡ NEAR"
-
                     elif "Volatilitas" in mode:
                         daily_range = ((H - L) / L) * 100
                         if daily_range > 2.0:
@@ -402,8 +406,8 @@ with tab1:
                             "Price": int(C), 
                             "Chg%": chg,
                             "RSI": int(rsi_val),
-                            "Funda": funda_stat,  # KOLOM BARU
-                            "Valuasi": val_stat,  # KOLOM BARU
+                            "Funda": funda_stat, 
+                            "Valuasi": val_stat,
                             "STATUS": rank_msg,
                             "Score": score
                         })
