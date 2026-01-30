@@ -86,7 +86,7 @@ def format_large_number(num):
     if num >= 1_000_000: return f"{num/1_000_000:.1f}jt"
     return str(int(num))
 
-# --- WIDGET CHART TRADINGVIEW (COMPACT SIZE) ---
+# --- WIDGET CHART (COMPACT) ---
 def render_tv_widget(symbol):
     html_code = f"""
     <div class="tradingview-widget-container">
@@ -237,9 +237,8 @@ display_market_dashboard()
 
 tab1, tab2, tab3 = st.tabs(["🔍 SCREENER & ANALYST", "⚡ EXECUTION", "🔐 PORTFOLIO"])
 
-# --- TAB 1: COMPACT LAYOUT (CHART SIDE-BY-SIDE) ---
+# --- TAB 1: COMPACT LAYOUT ---
 with tab1:
-    # --- ROW 1: CHART (KIRI) & INPUT/INFO (KANAN) ---
     col_chart, col_info = st.columns([1.6, 1])
     
     # KIRI: CHART
@@ -260,7 +259,6 @@ with tab1:
                 if st.button("🔍 Cek", type="primary", use_container_width=True):
                     st.session_state['xray_ticker'] = txt_in
             
-            # Info Detail
             d_s = get_technical_detail(st.session_state['xray_ticker'])
             if d_s is not None:
                 rsi_safe = int(d_s['RSI']) if pd.notna(d_s['RSI']) else 0
@@ -270,20 +268,19 @@ with tab1:
             else: st.warning("Data loading...")
             
             st.divider()
-            st.caption("📖 **Tips Singkat:**")
-            st.caption("- Chart di kiri sudah ada garis Fibonacci otomatis.")
-            st.caption("- Gunakan RSI < 30 untuk mencari area beli (diskon).")
+            st.caption("📖 **Tips:** Chart di kiri otomatis menarik garis Fibonacci. Gunakan RSI < 30 untuk area beli.")
 
     st.markdown("---")
     
-    # --- ROW 2: SCANNER (SMART RANKING) ---
+    # --- ROW 2: SCANNER (SMART RANKING & FAST TRADE) ---
     st.header("📡 Radar Market (Scanner)")
     st.caption("👇 Klik tabel untuk melihat chart di atas.")
     
     col_rad1, col_rad2 = st.columns([3, 1])
     with col_rad1:
         if 'mode' not in st.session_state: st.session_state['mode'] = "Radar Diskon (Market Crash)"
-        mode = st.radio("Strategi:", ["Radar Diskon (Market Crash)", "Reversal (Pantulan)", "Breakout (Tren Naik)", "Swing (Koreksi Sehat)"], horizontal=True)
+        # MENAMBAHKAN OPSI "Volatilitas Tinggi"
+        mode = st.radio("Strategi:", ["Radar Diskon (Market Crash)", "Reversal (Pantulan)", "Breakout (Tren Naik)", "Swing (Koreksi Sehat)", "🚀 Volatilitas Tinggi (Fast Trade)"], horizontal=True)
         if mode != st.session_state['mode']:
             st.session_state['scan'] = None; st.session_state['mode'] = mode; st.rerun()
     
@@ -298,34 +295,46 @@ with tab1:
                 if df is not None:
                     C = df['Close'].iloc[-1]; C1 = df['Close'].iloc[-2]
                     O = df['Open'].iloc[-1]
+                    H = df['High'].iloc[-1]; L = df['Low'].iloc[-1]
                     rsi = ta.rsi(df['Close'], 14).iloc[-1]
                     rsi_val = rsi if pd.notna(rsi) else 50
                     
                     # LOGIKA SMART RANKING
-                    rank = "⚪ SILVER" # Default
+                    rank = "⚪ SILVER" 
                     score = 0
                     
                     # 1. Logic Diskon
                     if "Diskon" in mode:
                         if rsi_val < 25: rank = "💎 DIAMOND (Super Diskon)"; score=3
                         elif rsi_val < 30: rank = "✅ GOLD (Diskon)"; score=2
-                        else: score=1
+                        elif rsi_val < 35: score=1
+                    
                     # 2. Logic Reversal
                     elif "Reversal" in mode:
                         if rsi_val < 45 and C > O: 
                             if df['Volume'].iloc[-1] > df['Volume'].rolling(20).mean().iloc[-1]:
                                 rank = "💎 DIAMOND (Vol Break)"; score=3
                             else: rank = "✅ GOLD"; score=2
+                    
                     # 3. Logic Breakout
                     elif "Breakout" in mode:
                         if C == df['High'].rolling(20).max().iloc[-1]: 
                             rank = "💎 DIAMOND (New High)"; score=3
+                    
                     # 4. Logic Swing
                     elif "Swing" in mode:
                         ma50 = df['Close'].rolling(50).mean().iloc[-1]
                         if pd.notna(ma50) and C > ma50: rank = "✅ GOLD"; score=2
+                        
+                    # 5. Logic FAST TRADE (BARU)
+                    elif "Volatilitas" in mode:
+                        daily_range = ((H - L) / L) * 100
+                        if daily_range > 2.0: # Minimal gerak 2%
+                            if daily_range > 4.0: rank = "💎 DIAMOND (Liar >4%)"; score=3
+                            elif daily_range > 3.0: rank = "✅ GOLD (Aktif >3%)"; score=2
+                            else: rank = "⚡ SILVER (Gerak >2%)"; score=1
 
-                    if score > 0: # Hanya masukkan jika memenuhi kriteria
+                    if score > 0: 
                         chg = ((C-C1)/C1)*100
                         res.append({
                             "Stock": t.replace(".JK",""), 
@@ -333,12 +342,11 @@ with tab1:
                             "Chg%": chg,
                             "RSI": int(rsi_val),
                             "STATUS": rank,
-                            "Score": score # Hidden col for sorting
+                            "Score": score
                         })
                         
             bar.empty()
             if res: 
-                # Sort by Score (Tertinggi di atas)
                 df_res = pd.DataFrame(res).sort_values(by="Score", ascending=False).drop(columns=["Score"])
                 st.session_state['scan'] = df_res
             else: st.warning("Tidak ada saham sesuai kriteria.")
