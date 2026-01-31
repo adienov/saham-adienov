@@ -19,7 +19,7 @@ st.set_page_config(
 # ==========================================
 SECRET_PIN = "2026" 
 # 👇 MASUKKAN LINK GRUP WA DI BAWAH INI 👇
-LINK_WA = "https://chat.whatsapp.com/GANTILINKDISINI" 
+LINK_WA = "https://chat.whatsapp.com/IwsFmoVxlNPHy6Sc1vaAqd?mode=gi_t" 
 # ==========================================
 
 # UNIVERSE SAHAM
